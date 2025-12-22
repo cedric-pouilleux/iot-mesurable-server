@@ -1,0 +1,18 @@
+# Dependencies
+node_modules
+dist
+
+# Build files
+*.min.js
+*.min.css
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated files
+drizzle/
+
