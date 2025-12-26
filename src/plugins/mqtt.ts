@@ -54,18 +54,23 @@ export default fp(async (fastify: FastifyInstance) => {
 
     try {
       await mqttRepo.insertMeasurementsBatch(batch)
-      
-      const deviceList = Object.entries(byDevice)
-        .map(([id, m]) => `${id}(${m.length})`)
-        .join(', ')
-      
+
+      const deviceList = Object.keys(byDevice).join(', ')
+
+      const details = Object.entries(byDevice).flatMap(([id, measurements]) => {
+        return measurements.map(m => {
+          const key = m.hardwareId && m.hardwareId !== 'unknown'
+            ? `${m.hardwareId}:${m.sensorType}`
+            : m.sensorType
+          return `${key}=${m.value}`
+        })
+      })
+
       fastify.log.info({
         msg: `[DB] Inserted ${batch.length} measurements: ${deviceList}`,
         count: batch.length,
         devices: Object.keys(byDevice),
-        deviceCounts: Object.fromEntries(
-          Object.entries(byDevice).map(([id, m]) => [id, m.length])
-        ),
+        details: details,
       })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
@@ -147,8 +152,8 @@ export default fp(async (fastify: FastifyInstance) => {
     await messageHandler.handleMessage(topic, message)
   })
 
-  fastify.decorate('mqtt', client) 
-    fastify.decorate('publishConfig', (moduleId: string, config: ModuleConfig) => {
+  fastify.decorate('mqtt', client)
+  fastify.decorate('publishConfig', (moduleId: string, config: ModuleConfig) => {
     if (!client) return false
     const topic = `${moduleId}/sensors/config`
     const payload = JSON.stringify(config)
@@ -161,11 +166,11 @@ export default fp(async (fastify: FastifyInstance) => {
     const topic = `${moduleId}/sensors/reset`
     const payload = JSON.stringify({ sensor })
     client.publish(topic, payload, { qos: 1 })
-    fastify.log.success({ 
-      msg: `✓ [MQTT] Reset sent to ${moduleId}: ${sensor}`, 
+    fastify.log.success({
+      msg: `✓ [MQTT] Reset sent to ${moduleId}: ${sensor}`,
       direction: 'OUT',
-      moduleId, 
-      sensor 
+      moduleId,
+      sensor
     })
     return true
   })

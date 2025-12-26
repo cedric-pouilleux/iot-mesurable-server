@@ -96,7 +96,7 @@ export class DeviceController {
       const published = this.fastify.publishReset(id, sensor)
 
       if (published) {
-        this.fastify.log.info({ msg: `[API] Reset capteur demandé`, source: 'USER', moduleId: id, sensor })
+        this.fastify.log.info({ msg: `[API] Reset capteur demandé: ${sensor}`, source: 'USER', moduleId: id, sensor })
         return {
           success: true,
           message: `Reset command sent for sensor ${sensor}`,
@@ -126,34 +126,34 @@ export class DeviceController {
       const published = this.fastify.mqtt.publish(topic, payload)
 
       if (published) {
-        this.fastify.log.info({ 
-          msg: `[API] Hardware ${enabled ? 'enabled' : 'disabled'}`, 
-          source: 'USER', 
-          moduleId: id, 
-          hardware, 
-          enabled 
+        this.fastify.log.info({
+          msg: `[API] Hardware ${hardware} ${enabled ? 'enabled' : 'disabled'}`,
+          source: 'USER',
+          moduleId: id,
+          hardware,
+          enabled
         })
         return {
           success: true,
           message: `${hardware} ${enabled ? 'enabled' : 'disabled'}`,
         }
       } else {
-        this.fastify.log.error({ 
-          msg: `[API] Failed to publish hardware enable command`, 
-          source: 'USER', 
-          moduleId: id, 
-          hardware 
+        this.fastify.log.error({
+          msg: `[API] Failed to publish hardware enable command`,
+          source: 'USER',
+          moduleId: id,
+          hardware
         })
         throw this.fastify.httpErrors.internalServerError('Failed to publish enable command')
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      this.fastify.log.error({ 
-        msg: `[API] Failed to enable/disable hardware`, 
-        source: 'USER', 
-        moduleId: id, 
-        hardware, 
-        error: errorMessage 
+      this.fastify.log.error({
+        msg: `[API] Failed to enable/disable hardware`,
+        source: 'USER',
+        moduleId: id,
+        hardware,
+        error: errorMessage
       })
       throw this.fastify.httpErrors.internalServerError(errorMessage)
     }
@@ -267,17 +267,17 @@ export class DeviceController {
       const activeSensors = sensorConfigRows.map(row => ({
         sensorType: row.sensorType,
         intervalSeconds: row.intervalSeconds,
-        rowCount: 0 
+        rowCount: 0
       }))
 
       if (!storageStats) {
-         return {
-            rowCount: 0,
-            estimatedSizeBytes: 0,
-            oldestMeasurement: null,
-            newestMeasurement: null,
-            activeSensors
-         }
+        return {
+          rowCount: 0,
+          estimatedSizeBytes: 0,
+          oldestMeasurement: null,
+          newestMeasurement: null,
+          activeSensors
+        }
       }
 
       return {
@@ -335,12 +335,12 @@ export class DeviceController {
         }
         status.preferences = statusRow.preferences || {}
       }
-      
+
       // Add zone name if device is assigned to a zone
       if (statusRow.zoneName) {
         status.zoneName = statusRow.zoneName
       }
-      
+
       // Add module type
       if (statusRow.moduleType) {
         status.moduleType = statusRow.moduleType
@@ -368,16 +368,16 @@ export class DeviceController {
 
   private async buildHistory(moduleId: string, days: number) {
     const historyRows = await this.deviceRepo.getHistoryData(moduleId, days)
-    
+
     const sensors: Record<string, SensorDataPoint[]> = {}
 
     historyRows.forEach(row => {
       const dataPoint: SensorDataPoint = { time: row.time, value: row.value }
-      
+
       // Use composite key: hardware_id:sensor_type (normalized to lowercase)
       const sensorTypeLow = row.sensorType.toLowerCase()
       let key = sensorTypeLow
-      
+
       if (row.hardwareId && row.hardwareId !== 'unknown') {
         key = `${row.hardwareId.toLowerCase()}:${sensorTypeLow}`
       }

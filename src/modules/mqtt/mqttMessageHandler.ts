@@ -21,7 +21,7 @@ export class MqttMessageHandler {
     private statusUpdateBuffer: DeviceStatusUpdate[],
     private onStatusBufferFull: () => Promise<void>,
     private onMeasurementBufferFull: () => Promise<void>
-  ) {}
+  ) { }
 
   /**
    * Parse topic structure: module_id/category/sensor_type
@@ -84,15 +84,15 @@ export class MqttMessageHandler {
 
     try {
       const metadata = JSON.parse(payload)
-      
+
       // Check for new nested format with moduleType
       if (metadata.sensors && typeof metadata.sensors === 'object') {
         // Extract moduleType and persist it via system_config update
         if (metadata.moduleType) {
-          this.statusUpdateBuffer.push({ 
-            moduleId, 
-            type: 'system_config', 
-            data: { moduleType: metadata.moduleType } 
+          this.statusUpdateBuffer.push({
+            moduleId,
+            type: 'system_config',
+            data: { moduleType: metadata.moduleType }
           })
         }
         // Use the nested sensors object for sensor status
@@ -166,6 +166,7 @@ export class MqttMessageHandler {
         moduleId,
         deviceTime: time,
         source: 'esp32',
+        category: 'hardware',
       }
 
       // Use the appropriate Pino method based on the log level
@@ -211,7 +212,7 @@ export class MqttMessageHandler {
   private isValueValid(sensorType: string, value: number): boolean {
     // Get range from registry (loaded from manifests)
     const range = registry.getValidationRange(sensorType)
-    
+
     // Unknown sensor type - allow (backwards compatibility)
     if (!range) return true
 
@@ -246,7 +247,7 @@ export class MqttMessageHandler {
     if (parts.length === 3 && category !== 'sensors' && !topic.includes('/status') && !topic.includes('/config')) {
       const hardwareId = parts[1]
       const measurementType = parts[2]
-      
+
       // Canonical sensor key mappings - all hardware uses the same canonical keys
       // The hardware_id is stored separately to track the source
       const canonicalMappings: Record<string, Record<string, string>> = {
@@ -282,7 +283,7 @@ export class MqttMessageHandler {
           'co': 'co'
         }
       }
-      
+
       // Look up the canonical key, fallback to original if not found
       const hardwareMap = canonicalMappings[hardwareId]
       const canonicalSensorType = hardwareMap?.[measurementType] ?? measurementType
@@ -297,12 +298,12 @@ export class MqttMessageHandler {
         return true // Message was handled (rejected), don't try other handlers
       }
 
-      this.measurementBuffer.push({ 
-        time: now, 
-        moduleId, 
+      this.measurementBuffer.push({
+        time: now,
+        moduleId,
         sensorType: canonicalSensorType,
         hardwareId,  // Store the hardware source
-        value 
+        value
       })
 
       if (this.measurementBuffer.length >= 100) {
@@ -342,7 +343,7 @@ export class MqttMessageHandler {
     ) {
       try {
         const parsed = JSON.parse(payload) as Record<string, unknown>
-        
+
         // Handle nested sensors/status format: {moduleId, moduleType, sensors: {...}}
         if (topic.endsWith('/sensors/status') && parsed.sensors && typeof parsed.sensors === 'object') {
           wsMetadata = parsed.sensors as Record<string, unknown>
@@ -436,12 +437,12 @@ export class MqttMessageHandler {
     // Broadcast via WebSocket (always emit to keep frontend "alive" status updated)
     const wsData = this.prepareWebSocketData(topic, payload, parsed, now)
     if (wsData && this.fastify.io) {
-      const clientCount = this.fastify.io.sockets.sockets.size 
+      const clientCount = this.fastify.io.sockets.sockets.size
       if (clientCount > 0) {
-          // REMOVED DELTA CHECK: We want to send updates even if value is same, 
-          // so the frontend knows the sensor is still alive (timestamp refresh).
-          // this.lastBroadcastedPayload.set(topic, payload)
-          this.fastify.io.emit('mqtt:data', wsData)
+        // REMOVED DELTA CHECK: We want to send updates even if value is same, 
+        // so the frontend knows the sensor is still alive (timestamp refresh).
+        // this.lastBroadcastedPayload.set(topic, payload)
+        this.fastify.io.emit('mqtt:data', wsData)
 
       }
     }
