@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm'
 import * as schema from '../../db/schema'
 
 export class DeviceRepository {
-  constructor(private db: NodePgDatabase<typeof schema>) {}
+  constructor(private db: NodePgDatabase<typeof schema>) { }
 
   async getAllModules() {
     return this.db
@@ -64,11 +64,29 @@ export class DeviceRepository {
       .where(eq(schema.sensorConfig.moduleId, moduleId))
   }
 
-  async getHistoryData(moduleId: string, days: number) {
+  async getHistoryData(moduleId: string, days: number, bucket: string = 'auto') {
     const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
 
-    // Déterminer le niveau d'agrégation selon la période
-    const aggregation = days >= 7 ? '1 hour' : days > 1 ? '1 minute' : null
+    // Déterminer le niveau d'agrégation
+    let aggregation: string | null = null
+
+    if (bucket === 'raw') {
+      // Données brutes, pas d'agrégation
+      aggregation = null
+    } else if (bucket === 'auto') {
+      // Logique automatique basée sur la période demandée
+      aggregation = days >= 7 ? '1 hour' : days > 1 ? '1 minute' : null
+    } else {
+      // Bucket explicite demandé par le frontend
+      const bucketMap: Record<string, string> = {
+        '1min': '1 minute',
+        '5min': '5 minutes',
+        '15min': '15 minutes',
+        '30min': '30 minutes',
+        '1hour': '1 hour',
+      }
+      aggregation = bucketMap[bucket] || null
+    }
 
     let query
     if (aggregation) {
@@ -119,7 +137,7 @@ export class DeviceRepository {
     // Merge new preferences with existing ones using jsonb_concat or simple update if fetching first
     // Since we're using Drizzle, we can fetch, merge, and update, or use SQL for atomic merge.
     // Simple approach: atomic merge using || operator for jsonb in Postgres
-    
+
     return this.db
       .update(schema.deviceSystemStatus)
       .set({

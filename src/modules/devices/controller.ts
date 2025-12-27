@@ -222,9 +222,9 @@ export class DeviceController {
     reply: FastifyReply
   ) => {
     const { id } = req.params
-    const { days } = req.query
+    const { days, bucket } = req.query
     try {
-      return await this.buildHistory(id, days)
+      return await this.buildHistory(id, days, bucket)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       this.fastify.log.error(`Error fetching history: ${errorMessage}`)
@@ -366,8 +366,8 @@ export class DeviceController {
     return status
   }
 
-  private async buildHistory(moduleId: string, days: number) {
-    const historyRows = await this.deviceRepo.getHistoryData(moduleId, days)
+  private async buildHistory(moduleId: string, days: number, bucket: string = 'auto') {
+    const historyRows = await this.deviceRepo.getHistoryData(moduleId, days, bucket)
 
     const sensors: Record<string, SensorDataPoint[]> = {}
 

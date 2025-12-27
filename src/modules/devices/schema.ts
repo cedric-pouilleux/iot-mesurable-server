@@ -142,6 +142,7 @@ export const ModuleStatusResponseSchema = DeviceStatusSchema
 // Separate history endpoint schema
 export const ModuleHistoryQuerySchema = z.object({
   days: z.string().default('1').transform(Number),
+  bucket: z.enum(['auto', 'raw', '1min', '5min', '15min', '30min', '1hour']).optional().default('auto'),
 })
 
 // Dynamic history schema - supports any sensor keys
