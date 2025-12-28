@@ -12,7 +12,7 @@ import type {
 } from '../../types/mqtt'
 
 export class MqttRepository {
-  constructor(private db: NodePgDatabase<typeof schema>) {}
+  constructor(private db: NodePgDatabase<typeof schema>) { }
 
   /**
    * Insert batch of measurements (optimized for TimescaleDB)
@@ -99,7 +99,7 @@ export class MqttRepository {
       uptimeSeconds = parseInt(data.uptimeStart, 10)
       if (isNaN(uptimeSeconds)) uptimeSeconds = null
     }
-    
+
     const bootedAt = uptimeSeconds !== null && uptimeSeconds >= 0
       ? new Date(Date.now() - uptimeSeconds * 1000)
       : null
@@ -115,7 +115,12 @@ export class MqttRepository {
         rssi: data.rssi ?? null,
         flashUsedKb: data.flash?.usedKb ?? null,
         flashFreeKb: data.flash?.freeKb ?? null,
-        flashSystemKb: data.flash?.totalKb ?? data.flash?.systemKb ?? null, // totalKb or legacy systemKb
+        // Calculate system usage if not provided: Total - Used (Sketch) - Free (OTA)
+        flashSystemKb: data.flash?.systemKb ?? (
+          (data.flash?.totalKb && data.flash?.usedKb && data.flash?.freeKb)
+            ? Math.max(0, data.flash.totalKb - data.flash.usedKb - data.flash.freeKb)
+            : null
+        ),
         heapTotalKb: data.memory?.heapTotalKb ?? null,
         heapFreeKb: data.memory?.heapFreeKb ?? null,
         heapMinFreeKb: data.memory?.heapMinFreeKb ?? null,

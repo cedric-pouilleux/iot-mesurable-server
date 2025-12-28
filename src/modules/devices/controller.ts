@@ -264,11 +264,13 @@ export class DeviceController {
         this.deviceRepo.getSensorConfig(id),
       ])
 
-      const activeSensors = sensorConfigRows.map(row => ({
-        sensorType: row.sensorType,
-        intervalSeconds: row.intervalSeconds,
-        rowCount: 0
-      }))
+      const activeSensors = sensorConfigRows
+        .filter(row => row.enabled !== false)
+        .map(row => ({
+          sensorType: row.sensorType,
+          intervalSeconds: row.intervalSeconds,
+          rowCount: 0
+        }))
 
       if (!storageStats) {
         return {

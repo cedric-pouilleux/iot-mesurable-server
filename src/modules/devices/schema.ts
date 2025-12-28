@@ -18,16 +18,11 @@ export const ModuleParamsSchema = z.object({
 })
 
 export const SensorResetSchema = z.object({
-  sensor: z.enum([
-    'co2', 'temp', 'temperature', 'humidity', 'voc', 'pressure', 'temperature_bmp',
-    'pm1', 'pm25', 'pm4', 'pm10', 'eco2', 'tvoc', 'temp_sht', 'hum_sht', 'all'
-  ]),
+  sensor: z.string(),
 })
 
 export const HardwareEnableSchema = z.object({
-  hardware: z.enum([
-    'dht22', 'bmp280', 'sgp40', 'sgp30', 'sps30', 'sht40', 'mhz14a', 'sc16co'
-  ]),
+  hardware: z.string(),
   enabled: z.boolean(),
 })
 
