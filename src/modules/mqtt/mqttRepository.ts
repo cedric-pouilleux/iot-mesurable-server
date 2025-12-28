@@ -185,6 +185,7 @@ export class MqttRepository {
           sensorType,
           intervalSeconds: sensor.interval ?? null,
           model: sensor.model ?? null,
+          enabled: sensor.enabled !== undefined ? sensor.enabled : true,
           updatedAt: new Date(),
         })
         .onConflictDoUpdate({
@@ -192,6 +193,7 @@ export class MqttRepository {
           set: {
             intervalSeconds: sql`COALESCE(EXCLUDED.interval_seconds, sensor_config.interval_seconds)`,
             model: sql`COALESCE(EXCLUDED.model, sensor_config.model)`,
+            enabled: sql`COALESCE(EXCLUDED.enabled, sensor_config.enabled)`,
             updatedAt: sql`NOW()`,
           },
         })

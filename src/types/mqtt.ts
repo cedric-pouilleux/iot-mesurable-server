@@ -67,6 +67,7 @@ export interface SensorsConfigData {
   [sensorType: string]: {
     interval?: number
     model?: string
+    enabled?: boolean
   }
 }
 
