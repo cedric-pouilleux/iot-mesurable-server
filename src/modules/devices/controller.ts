@@ -1,4 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import { registry } from '../../core/registry'
+
+
 import { DeviceRepository } from './deviceRepository'
 import type {
   ModuleListItem,
@@ -31,7 +34,14 @@ export class DeviceController {
       const modules: ModuleListItem[] = rows.map(row => {
         const id = row.moduleId
         const name = id.split('/').pop() || id
-        return { id, name, type: 'unknown', status: null }
+        // Use type from DB if available, otherwise 'unknown'
+        const type = row.moduleType || 'unknown'
+
+        // Lookup category from manifest
+        const manifest = registry.getManifest(type)
+        const category = manifest?.type
+
+        return { id, name, type, category, status: null }
       })
       return modules
     } catch (err) {

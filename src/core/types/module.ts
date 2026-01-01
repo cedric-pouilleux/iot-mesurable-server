@@ -11,6 +11,7 @@ export interface ModuleManifest {
   id: string              // "air-quality", "lighting", etc.
   name: string            // "Qualité d'air"
   version: string         // "1.0.0"
+  type?: 'sensor' | 'actuator' | 'hybrid' | string
   hardware: HardwareDef[]
   sensors: SensorDef[]
   actions: ActionDef[]

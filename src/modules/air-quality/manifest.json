@@ -2,35 +2,85 @@
   "id": "air-quality",
   "name": "Qualité d'air",
   "version": "1.0.0",
-  
-  "hardware": [
-    { "key": "mhz14a", "name": "MH-Z14A", "type": "sensor", "sensors": ["co2"] },
-    { "key": "dht22", "name": "DHT22", "type": "sensor", "sensors": ["temperature", "humidity"] },
-    { "key": "bmp280", "name": "BMP280", "type": "sensor", "sensors": ["pressure", "temperature"] },
-    { "key": "sgp40", "name": "SGP40", "type": "sensor", "sensors": ["voc"] },
-    { "key": "sgp30", "name": "SGP30", "type": "sensor", "sensors": ["eco2", "tvoc"] },
-    { "key": "sht40", "name": "SHT40", "type": "sensor", "sensors": ["temperature", "humidity"] },
-    { "key": "sps30", "name": "SPS30", "type": "sensor", "sensors": ["pm1", "pm25", "pm4", "pm10"] },
-    { "key": "sc16co", "name": "SC16-CO", "type": "sensor", "sensors": ["co"] }
-  ],
-  
+  "type": "sensor",
+  "hardware": [],
   "sensors": [
-    { "key": "co2", "label": "CO2", "unit": "ppm", "range": { "min": 0, "max": 10000 } },
-    { "key": "eco2", "label": "eCO2", "unit": "ppm", "range": { "min": 400, "max": 60000 } },
-    { "key": "temperature", "label": "Température", "unit": "°C", "range": { "min": -40, "max": 85 } },
-    { "key": "humidity", "label": "Humidité", "unit": "%", "range": { "min": 0, "max": 100 } },
-    { "key": "pressure", "label": "Pression", "unit": "hPa", "range": { "min": 300, "max": 1200 } },
-    { "key": "voc", "label": "COV", "unit": "index", "range": { "min": 0, "max": 500 } },
-    { "key": "tvoc", "label": "TCOV", "unit": "ppb", "range": { "min": 0, "max": 60000 } },
-    { "key": "co", "label": "CO", "unit": "ppm", "range": { "min": 0, "max": 1000 } },
-    { "key": "pm1", "label": "PM1.0", "unit": "µg/m³", "range": { "min": 0, "max": 10000 } },
-    { "key": "pm25", "label": "PM2.5", "unit": "µg/m³", "range": { "min": 0, "max": 10000 } },
-    { "key": "pm4", "label": "PM4.0", "unit": "µg/m³", "range": { "min": 0, "max": 10000 } },
-    { "key": "pm10", "label": "PM10", "unit": "µg/m³", "range": { "min": 0, "max": 10000 } }
+    {
+      "key": "co2",
+      "label": "CO2",
+      "unit": "ppm",
+      "range": {
+        "min": 0,
+        "max": 10000
+      }
+    },
+    {
+      "key": "eco2",
+      "label": "eCO2",
+      "unit": "ppm",
+      "range": {
+        "min": 400,
+        "max": 60000
+      }
+    },
+    {
+      "key": "temperature",
+      "label": "Température",
+      "unit": "°C",
+      "range": {
+        "min": -40,
+        "max": 85
+      }
+    },
+    {
+      "key": "humidity",
+      "label": "Humidité",
+      "unit": "%",
+      "range": {
+        "min": 0,
+        "max": 100
+      }
+    },
+    {
+      "key": "pressure",
+      "label": "Pression",
+      "unit": "hPa",
+      "range": {
+        "min": 300,
+        "max": 1200
+      }
+    },
+    {
+      "key": "voc",
+      "label": "COV",
+      "unit": "index",
+      "range": {
+        "min": 0,
+        "max": 500
+      }
+    },
+    {
+      "key": "co",
+      "label": "CO",
+      "unit": "ppm",
+      "range": {
+        "min": 0,
+        "max": 1000
+      }
+    },
   ],
-  
   "actions": [
-    { "id": "reset", "label": "Redémarrer", "icon": "refresh", "scope": "hardware" },
-    { "id": "setInterval", "label": "Intervalle", "icon": "clock", "scope": "hardware" }
+    {
+      "id": "reset",
+      "label": "Redémarrer",
+      "icon": "refresh",
+      "scope": "hardware"
+    },
+    {
+      "id": "setInterval",
+      "label": "Intervalle",
+      "icon": "clock",
+      "scope": "hardware"
+    }
   ]
 }

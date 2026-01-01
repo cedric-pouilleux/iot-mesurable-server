@@ -41,6 +41,7 @@ export const ModuleListResponseSchema = z.array(
     id: z.string(),
     name: z.string(),
     type: z.string(),
+    category: z.string().optional(),
     status: z.null(),
   })
 )

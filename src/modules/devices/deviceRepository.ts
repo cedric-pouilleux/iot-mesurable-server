@@ -7,7 +7,10 @@ export class DeviceRepository {
 
   async getAllModules() {
     return this.db
-      .selectDistinct({ moduleId: schema.deviceSystemStatus.moduleId })
+      .selectDistinct({
+        moduleId: schema.deviceSystemStatus.moduleId,
+        moduleType: schema.deviceSystemStatus.moduleType
+      })
       .from(schema.deviceSystemStatus)
       .orderBy(schema.deviceSystemStatus.moduleId)
   }
