@@ -256,4 +256,5 @@ Cela garantit la cohérence des données même si l'ESP32 envoie des formats var
 
 - [Architecture](./architecture.md) - Flux de données
 - [Database](./database.md) - Schéma measurements
+- [Testing](./testing.md) - Tests du service MQTT
 - [API](./api.md) - Endpoints configuration

@@ -20,6 +20,7 @@ backend/
     ├── database.md              # Schéma DB, Drizzle ORM, migrations
     ├── api.md                   # Endpoints API, conventions
     ├── mqtt.md                  # MQTT, buffering, temps réel
+    ├── testing.md               # 🆕 Tests unitaires, Vitest
     ├── development.md           # Setup dev, scripts, debugging
     └── deployment.md            # Production, monitoring, performance
 ```

@@ -62,8 +62,18 @@ src/
 ├── modules/               # Modules métier
 │   ├── devices/
 │   │   ├── routes.ts      # Routes API
+│   │   ├── controller.ts  # Logique HTTP
+│   │   ├── service.ts     # 🆕 Logique métier pure (testable)
 │   │   ├── schema.ts      # Validation Zod
-│   │   └── deviceRepository.ts  # Data access
+│   │   ├── deviceRepository.ts  # Data access
+│   │   └── __tests__/     # 🆕 Tests unitaires
+│   │       └── service.test.ts
+│   ├── mqtt/
+│   │   ├── mqttMessageHandler.ts  # Orchestration
+│   │   ├── mqttRepository.ts      # Data access
+│   │   ├── service.ts     # 🆕 Parsing & validation (testable)
+│   │   └── __tests__/     # 🆕 Tests unitaires
+│   │       └── service.test.ts
 │   └── system/
 │       ├── routes.ts
 │       └── schema.ts
@@ -79,9 +89,10 @@ src/
 ### Principes de Structure
 
 1. **Modules** : Regroupement par fonctionnalité métier
-2. **Plugins** : Infrastructure technique réutilisable
-3. **Types** : Générés depuis Drizzle (mapping automatique DB ↔ TypeScript)
-4. **Config** : Centralisée et typée
+2. **Services** : 🆕 Logique pure, testable sans infrastructure
+3. **Plugins** : Infrastructure technique réutilisable
+4. **Types** : Générés depuis Drizzle (mapping automatique DB ↔ TypeScript)
+5. **Config** : Centralisée et typée
 
 ### Conventions de Nommage
 
@@ -230,4 +241,5 @@ fastify.io.emit(event, data)
 
 - [Database](./database.md) - Schéma et Drizzle ORM
 - [MQTT](./mqtt.md) - Configuration et buffering
+- [Testing](./testing.md) - Tests unitaires et Vitest
 - [API](./api.md) - Endpoints et conventions
