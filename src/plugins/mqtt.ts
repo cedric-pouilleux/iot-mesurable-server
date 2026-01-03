@@ -157,6 +157,11 @@ export default fp(async (fastify: FastifyInstance) => {
     if (!client) return false
     const topic = `${moduleId}/sensors/config`
     const payload = JSON.stringify(config)
+    fastify.log.info({
+      msg: `[MQTT] Publishing config to ${topic}`,
+      payload: config,
+      direction: 'OUT'
+    })
     client.publish(topic, payload, { retain: true, qos: 1 })
     return true
   })
@@ -215,9 +220,29 @@ async function republishAllConfigs(
   try {
     const configsByModule = await mqttRepo.getEnabledSensorConfigs()
 
-    // Publish configs
+    // Publish configs (convert composite keys to hardware keys for firmware)
     for (const [moduleId, config] of Object.entries(configsByModule)) {
-      fastify.publishConfig(moduleId, config)
+      // Convert composite keys format to hardware format
+      const mqttConfig: ModuleConfig = { sensors: {} }
+      const hardwareIntervals = new Map<string, number>()
+
+      if (config.sensors) {
+        for (const [key, sensorConfig] of Object.entries(config.sensors)) {
+          const interval = sensorConfig?.interval
+          if (interval === undefined) continue
+
+          // Extract hardware key from composite key (scd41:co2 -> scd41)
+          const hardwareKey = key.includes(':') ? key.split(':')[0] : key
+          hardwareIntervals.set(hardwareKey, interval)
+        }
+
+        // Build hardware-level config for MQTT
+        for (const [hardwareKey, interval] of hardwareIntervals) {
+          mqttConfig.sensors![hardwareKey] = { interval }
+        }
+      }
+
+      fastify.publishConfig(moduleId, mqttConfig)
     }
 
     const moduleIds = Object.keys(configsByModule)

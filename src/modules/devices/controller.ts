@@ -59,26 +59,79 @@ export class DeviceController {
     const config: ModuleConfig = req.body
 
     try {
+      // First, get the module type to lookup the manifest
+      const deviceStatus = await this.deviceRepo.getDeviceStatus(id)
+      const moduleType = deviceStatus?.moduleType
+
       if (config.sensors) {
-        const queries = Object.entries(config.sensors).map(([sensorType, sensorConfig]) => {
+        const queries: Promise<any>[] = []
+
+        for (const [key, sensorConfig] of Object.entries(config.sensors)) {
           const interval = sensorConfig?.interval
-          if (interval !== undefined) {
-            return this.deviceRepo.updateSensorConfig(id, sensorType, interval)
+          if (interval === undefined) continue
+
+          // Try to find if this is a hardware key in the manifest
+          let shouldExpand = false
+          let sensorKeys: string[] = []
+
+          if (moduleType) {
+            const manifest = registry.getManifest(moduleType)
+            const hardware = manifest?.hardware.find(h => h.key === key)
+
+            if (hardware && hardware.sensors) {
+              // This is a hardware key, expand to all its sensors
+              shouldExpand = true
+              sensorKeys = hardware.sensors.map(s => `${key}:${s}`)
+            }
           }
-          return Promise.resolve()
-        })
+
+          if (shouldExpand && sensorKeys.length > 0) {
+            // Save config for each sensor with composite key
+            for (const compositeKey of sensorKeys) {
+              queries.push(this.deviceRepo.updateSensorConfig(id, compositeKey, interval))
+            }
+          } else {
+            // Fallback: treat as direct sensor type (for backwards compatibility)
+            queries.push(this.deviceRepo.updateSensorConfig(id, key, interval))
+          }
+        }
+
         await Promise.all(queries)
       }
 
-      // Publish to MQTT
-      const published = this.fastify.publishConfig(id, config)
+      // Build MQTT config in hardware format for firmware compatibility
+      // Convert composite keys (scd41:co2) back to hardware keys (scd41)
+      const mqttConfig: ModuleConfig = { sensors: {} }
+
+      if (config.sensors) {
+        const hardwareIntervals = new Map<string, number>()
+
+        for (const [key, sensorConfig] of Object.entries(config.sensors)) {
+          const interval = sensorConfig?.interval
+          if (interval === undefined) continue
+
+          // Extract hardware key from composite key or use as-is
+          const hardwareKey = key.includes(':') ? key.split(':')[0] : key
+
+          // Use the interval (all sensors of same hardware should have same interval)
+          hardwareIntervals.set(hardwareKey, interval)
+        }
+
+        // Build final MQTT config with hardware keys
+        for (const [hardwareKey, interval] of hardwareIntervals) {
+          mqttConfig.sensors![hardwareKey] = { interval }
+        }
+      }
+
+      // Publish to MQTT with hardware-level config
+      const published = this.fastify.publishConfig(id, mqttConfig)
 
       if (published) {
         // Build detailed changes summary for the log message
-        const changesSummary = Object.entries(config.sensors || {})
+        const changesSummary = Object.entries(mqttConfig.sensors || {})
           .map(([sensor, cfg]) => `${sensor}=${cfg.interval}s`)
           .join(', ')
-        this.fastify.log.info({ msg: `[API] Config modifiée [${id}]: ${changesSummary}`, source: 'USER', moduleId: id, changes: config.sensors })
+        this.fastify.log.info({ msg: `[API] Config modifiée [${id}]: ${changesSummary}`, source: 'USER', moduleId: id, changes: mqttConfig.sensors })
         const response: ConfigUpdateResponse = {
           success: true,
           message: 'Configuration updated and published',
@@ -335,6 +388,7 @@ export class DeviceController {
         },
       }
 
+
       if (statusRow.chipModel) {
         status.hardware = {
           chip: {
@@ -345,8 +399,9 @@ export class DeviceController {
             cores: statusRow.cores,
           },
         }
-        status.preferences = statusRow.preferences || {}
       }
+
+      status.preferences = statusRow.preferences || {}
 
       // Add zone name if device is assigned to a zone
       if (statusRow.zoneName) {
@@ -359,10 +414,70 @@ export class DeviceController {
       }
     }
 
+    // Build interval map from sensor config (hardware-level)
+    const intervalMap = new Map<string, number>()
+    sensorConfigRows.forEach(row => {
+      if (row.intervalSeconds) {
+        // Extract hardware key from composite sensor type (e.g., "scd41:co2" → "scd41")
+        const hardwareKey = row.sensorType.includes(':')
+          ? row.sensorType.split(':')[0]
+          : row.sensorType
+        intervalMap.set(hardwareKey, row.intervalSeconds)
+      }
+    })
+
+    // Group sensors by hardware and find the most recent update time per hardware
+    const hardwareLastUpdate = new Map<string, number>()
+    sensorStatusRows.forEach(row => {
+      const hardwareKey = row.sensorType.includes(':')
+        ? row.sensorType.split(':')[0]
+        : row.sensorType
+
+      const currentTime = row.updatedAt?.getTime() || 0
+      const existingTime = hardwareLastUpdate.get(hardwareKey) || 0
+
+      // Keep the most recent timestamp for this hardware
+      if (currentTime > existingTime) {
+        hardwareLastUpdate.set(hardwareKey, currentTime)
+      }
+    })
+
+    // Calculate status for each sensor based on hardware interval and last update time
+    const now = Date.now()
+    const GRACE_PERIOD_MS = 10000 // 10 seconds grace period
+    const DEFAULT_INTERVAL_S = 60  // Default 60s if not configured
+
     status.sensors = {}
     sensorStatusRows.forEach(row => {
+      // Extract hardware key from composite sensor type
+      const hardwareKey = row.sensorType.includes(':')
+        ? row.sensorType.split(':')[0]
+        : row.sensorType
+
+      const intervalSeconds = intervalMap.get(hardwareKey) || DEFAULT_INTERVAL_S
+      const timeoutMs = (intervalSeconds * 2 * 1000) + GRACE_PERIOD_MS
+
+      // Use the hardware's most recent update time across ALL its sensors
+      const lastUpdate = hardwareLastUpdate.get(hardwareKey) || 0
+      const elapsed = now - lastUpdate
+
+      // Calculate status based on timeout
+      let calculatedStatus: string
+      if (lastUpdate === 0) {
+        calculatedStatus = 'unknown'  // Never received data
+      } else if (elapsed > timeoutMs) {
+        calculatedStatus = 'missing'  // Timeout exceeded
+      } else {
+        calculatedStatus = 'ok'        // Within timeout → OK
+      }
+
+      // Debug logging
+      if (row.sensorType.includes('scd41') || row.sensorType.includes('sgp')) {
+        console.log(`[STATUS DEBUG] ${row.sensorType}: hw=${hardwareKey}, lastUpdate=${new Date(lastUpdate).toISOString()}, elapsed=${Math.floor(elapsed / 1000)}s, timeout=${Math.floor(timeoutMs / 1000)}s, status=${calculatedStatus}`)
+      }
+
       status.sensors![row.sensorType] = {
-        status: row.status ?? 'unknown',
+        status: calculatedStatus,
         value: row.value,
       }
     })

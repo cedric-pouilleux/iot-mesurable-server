@@ -2,8 +2,28 @@
   "id": "air-quality",
   "name": "Qualité d'air",
   "version": "1.0.0",
+  "icon": "tabler:air-balloon",
   "type": "sensor",
-  "hardware": [],
+  "hardware": [
+    {
+      "key": "scd41",
+      "name": "SCD41",
+      "type": "sensor",
+      "sensors": [
+        "co2",
+        "temperature",
+        "humidity"
+      ]
+    },
+    {
+      "key": "sgp40",
+      "name": "SGP40",
+      "type": "sensor",
+      "sensors": [
+        "voc"
+      ]
+    }
+  ],
   "sensors": [
     {
       "key": "co2",
@@ -12,15 +32,6 @@
       "range": {
         "min": 0,
         "max": 10000
-      }
-    },
-    {
-      "key": "eco2",
-      "label": "eCO2",
-      "unit": "ppm",
-      "range": {
-        "min": 400,
-        "max": 60000
       }
     },
     {
@@ -42,15 +53,6 @@
       }
     },
     {
-      "key": "pressure",
-      "label": "Pression",
-      "unit": "hPa",
-      "range": {
-        "min": 300,
-        "max": 1200
-      }
-    },
-    {
       "key": "voc",
       "label": "COV",
       "unit": "index",
@@ -58,16 +60,7 @@
         "min": 0,
         "max": 500
       }
-    },
-    {
-      "key": "co",
-      "label": "CO",
-      "unit": "ppm",
-      "range": {
-        "min": 0,
-        "max": 1000
-      }
-    },
+    }
   ],
   "actions": [
     {

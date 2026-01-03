@@ -46,6 +46,44 @@ export class MqttRepository {
             value: sql`EXCLUDED.value`,
           },
         })
+
+      // Update sensor_status timestamps for interval-aware status calculation
+      // Group by (moduleId, composite key) to get latest measurement per sensor
+      const sensorUpdates = new Map<string, { moduleId: string; sensorType: string; value: number }>()
+      measurements.forEach(m => {
+        const compositeKey = `${m.hardwareId}:${m.sensorType}`
+        const key = `${m.moduleId}:${compositeKey}`
+        const existing = sensorUpdates.get(key)
+        if (!existing || m.value !== null) {
+          sensorUpdates.set(key, {
+            moduleId: m.moduleId,
+            sensorType: compositeKey,
+            value: m.value,
+          })
+        }
+      })
+
+      // Upsert sensor_status to keep updatedAt fresh
+      const statusUpdates = Array.from(sensorUpdates.values()).map(({ moduleId, sensorType, value }) =>
+        this.db
+          .insert(schema.sensorStatus)
+          .values({
+            moduleId,
+            sensorType,
+            status: 'ok',
+            value,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [schema.sensorStatus.moduleId, schema.sensorStatus.sensorType],
+            set: {
+              value: sql`EXCLUDED.value`,
+              updatedAt: sql`NOW()`,
+            },
+          })
+      )
+
+      await Promise.all(statusUpdates)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       // Log les premières mesures pour debug
