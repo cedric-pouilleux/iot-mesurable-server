@@ -263,6 +263,11 @@ export class MqttMessageHandler {
           'temperature': 'temperature',
           'humidity': 'humidity'
         },
+        'scd41': {
+          'co2': 'co2',
+          'temperature': 'temperature',
+          'humidity': 'humidity'
+        },
         'sgp30': {
           'eco2': 'eco2',
           'tvoc': 'tvoc'
