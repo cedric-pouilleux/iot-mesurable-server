@@ -78,6 +78,10 @@ export async function buildApp() {
   const logRetentionPlugin = await import('./plugins/log-retention')
   await app.register(logRetentionPlugin.default)
 
+  // Import gap detection plugin dynamically
+  const gapDetectionPlugin = await import('./plugins/gap-detection')
+  await app.register(gapDetectionPlugin.default)
+
   // Routes
   await app.register(devicesRoutes, { prefix: '/api' })
   await app.register(systemRoutes, { prefix: '/api' })

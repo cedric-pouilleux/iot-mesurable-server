@@ -16,6 +16,7 @@ import {
   PreferencesSchema,
   UpdatePreferencesResponseSchema,
   ModuleStorageResponseSchema,
+  ModuleHealthResponseSchema,
 } from './schema'
 
 const devicesRoutes: FastifyPluginAsync = async fastify => {
@@ -152,6 +153,22 @@ const devicesRoutes: FastifyPluginAsync = async fastify => {
       },
     },
     controller.getModuleHistory
+  )
+
+  // GET /modules/:id/health - Get module health status
+  app.get(
+    '/modules/:id/health',
+    {
+      schema: {
+        tags: ['Devices'],
+        summary: 'Get module health status (connection quality, gaps, uptime)',
+        params: ModuleParamsSchema,
+        response: {
+          200: ModuleHealthResponseSchema,
+        },
+      },
+    },
+    controller.getModuleHealth
   )
 
   // GET /modules/:id/storage - Get module storage stats

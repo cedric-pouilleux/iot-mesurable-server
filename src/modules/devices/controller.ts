@@ -3,6 +3,7 @@ import { registry } from '../../core/registry'
 
 
 import { DeviceRepository } from './deviceRepository'
+import { HealthService } from './healthService'
 import type {
   ModuleListItem,
   ModuleDataResponse,
@@ -23,9 +24,11 @@ type HardwareEnableBody = z.infer<typeof HardwareEnableSchema>
 
 export class DeviceController {
   private deviceRepo: DeviceRepository
+  private healthService: HealthService
 
   constructor(private fastify: FastifyInstance) {
     this.deviceRepo = new DeviceRepository(fastify.db)
+    this.healthService = new HealthService(fastify.db)
   }
 
   listModules = async (req: FastifyRequest, reply: FastifyReply) => {
@@ -312,6 +315,22 @@ export class DeviceController {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       this.fastify.log.error(`Error fetching dashboard: ${errorMessage}`)
       throw this.fastify.httpErrors.internalServerError('Failed to fetch dashboard data')
+    }
+  }
+
+  // GET /modules/:id/health
+  getModuleHealth = async (
+    req: FastifyRequest<{ Params: ModuleParams }>,
+    reply: FastifyReply
+  ) => {
+    const { id } = req.params
+    try {
+      const health = await this.healthService.getDeviceHealth(id)
+      return health
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      this.fastify.log.error(`Error fetching health status: ${errorMessage}`)
+      throw this.fastify.httpErrors.internalServerError('Failed to fetch health status')
     }
   }
 

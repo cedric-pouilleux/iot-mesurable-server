@@ -163,3 +163,23 @@ export const ModuleStorageResponseSchema = z.object({
     rowCount: z.number(),
   })),
 })
+
+// --- Health Monitoring ---
+export const SensorHealthStatusSchema = z.object({
+  sensorType: z.string(),
+  hardwareId: z.string().optional(),
+  status: z.enum(['connected', 'stale', 'offline']),
+  lastMeasurement: z.date().or(z.string()).nullable(),
+  timeSinceLastMeasurement: z.number().nullable(),
+  expectedIntervalSeconds: z.number().nullable(),
+  gapCount: z.number(),
+  longestGapMinutes: z.number().nullable(),
+})
+
+export const ModuleHealthResponseSchema = z.object({
+  moduleId: z.string(),
+  overallStatus: z.enum(['healthy', 'degraded', 'offline']),
+  uptimePercent24h: z.number(),
+  sensors: z.array(SensorHealthStatusSchema),
+  lastUpdate: z.date().or(z.string()),
+})
