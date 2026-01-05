@@ -268,6 +268,9 @@ export class MqttMessageHandler {
           'temperature': 'temperature',
           'humidity': 'humidity'
         },
+        'tpm200a': {
+          'co': 'co'
+        },
         'sgp30': {
           'eco2': 'eco2',
           'tvoc': 'tvoc'

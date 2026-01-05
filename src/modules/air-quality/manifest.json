@@ -22,6 +22,14 @@
       "sensors": [
         "voc"
       ]
+    },
+    {
+      "key": "tpm200a",
+      "name": "TPM200A-CO",
+      "type": "sensor",
+      "sensors": [
+        "co"
+      ]
     }
   ],
   "sensors": [
@@ -59,6 +67,15 @@
       "range": {
         "min": 0,
         "max": 500
+      }
+    },
+    {
+      "key": "co",
+      "label": "CO",
+      "unit": "ppm",
+      "range": {
+        "min": 0,
+        "max": 1000
       }
     }
   ],
