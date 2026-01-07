@@ -9,16 +9,18 @@ export class DeviceRepository {
     return this.db
       .selectDistinct({
         moduleId: schema.deviceSystemStatus.moduleId,
+        chipId: schema.deviceSystemStatus.chipId,
         moduleType: schema.deviceSystemStatus.moduleType
       })
       .from(schema.deviceSystemStatus)
-      .orderBy(schema.deviceSystemStatus.moduleId)
+      .orderBy(schema.deviceSystemStatus.moduleId, schema.deviceSystemStatus.chipId)
   }
 
   async getDeviceStatus(moduleId: string) {
     const result = await this.db
       .select({
         moduleId: schema.deviceSystemStatus.moduleId,
+        chipId: schema.deviceSystemStatus.chipId,
         moduleType: schema.deviceSystemStatus.moduleType,
         ip: schema.deviceSystemStatus.ip,
         mac: schema.deviceSystemStatus.mac,
@@ -118,17 +120,18 @@ export class DeviceRepository {
     }))
   }
 
-  async updateSensorConfig(moduleId: string, sensorType: string, interval: number) {
+  async updateSensorConfig(moduleId: string, chipId: string, sensorType: string, interval: number) {
     return this.db
       .insert(schema.sensorConfig)
       .values({
         moduleId,
+        chipId,
         sensorType,
         intervalSeconds: interval,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
-        target: [schema.sensorConfig.moduleId, schema.sensorConfig.sensorType],
+        target: [schema.sensorConfig.moduleId, schema.sensorConfig.chipId, schema.sensorConfig.sensorType],
         set: {
           intervalSeconds: interval,
           updatedAt: new Date(),

@@ -23,35 +23,53 @@ export const zones = pgTable('zones', {
 
 // --- Devices & Status ---
 
-export const deviceSystemStatus = pgTable('device_system_status', {
-  moduleId: text('module_id').primaryKey(),
-  name: text('name'),                                    // Nom affiché (défini par user)
-  moduleType: text('module_type'),                       // "air-quality", "lighting", etc.
-  zoneId: uuid('zone_id').references(() => zones.id),    // Zone assignée (nullable)
-  ip: text('ip'),
-  mac: text('mac'),
-  uptimeStart: integer('uptime_start'),
-  bootedAt: timestamp('booted_at', { withTimezone: true }),
-  rssi: integer('rssi'),
-  flashUsedKb: integer('flash_used_kb'),
-  flashFreeKb: integer('flash_free_kb'),
-  flashSystemKb: integer('flash_system_kb'),
-  heapTotalKb: integer('heap_total_kb'),
-  heapFreeKb: integer('heap_free_kb'),
-  heapMinFreeKb: integer('heap_min_free_kb'),
-  updatedAt: timestamp('updated_at').defaultNow(),
-  preferences: jsonb('preferences'),
-})
+export const deviceSystemStatus = pgTable(
+  'device_system_status',
+  {
+    moduleId: text('module_id').notNull(),
+    chipId: text('chip_id').notNull(),
+    name: text('name'),                                    // Nom affiché (défini par user)
+    moduleType: text('module_type'),                       // "air-quality", "lighting", etc.
+    zoneId: uuid('zone_id').references(() => zones.id),    // Zone assignée (nullable)
+    ip: text('ip'),
+    mac: text('mac'),
+    uptimeStart: integer('uptime_start'),
+    bootedAt: timestamp('booted_at', { withTimezone: true }),
+    rssi: integer('rssi'),
+    flashUsedKb: integer('flash_used_kb'),
+    flashFreeKb: integer('flash_free_kb'),
+    flashSystemKb: integer('flash_system_kb'),
+    heapTotalKb: integer('heap_total_kb'),
+    heapFreeKb: integer('heap_free_kb'),
+    heapMinFreeKb: integer('heap_min_free_kb'),
+    updatedAt: timestamp('updated_at').defaultNow(),
+    preferences: jsonb('preferences'),
+  },
+  table => {
+    return {
+      pk: primaryKey({ columns: [table.moduleId, table.chipId] }),
+    }
+  }
+)
 
-export const deviceHardware = pgTable('device_hardware', {
-  moduleId: text('module_id').primaryKey(),
-  chipModel: text('chip_model'),
-  chipRev: integer('chip_rev'),
-  cpuFreqMhz: integer('cpu_freq_mhz'),
-  flashKb: integer('flash_kb'),
-  cores: integer('cores'),
-  updatedAt: timestamp('updated_at').defaultNow(),
-})
+export const deviceHardware = pgTable(
+  'device_hardware',
+  {
+    moduleId: text('module_id').notNull(),
+    chipId: text('chip_id').notNull(),
+    chipModel: text('chip_model'),
+    chipRev: integer('chip_rev'),
+    cpuFreqMhz: integer('cpu_freq_mhz'),
+    flashKb: integer('flash_kb'),
+    cores: integer('cores'),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  table => {
+    return {
+      pk: primaryKey({ columns: [table.moduleId, table.chipId] }),
+    }
+  }
+)
 
 // --- Sensors ---
 
@@ -59,6 +77,7 @@ export const sensorStatus = pgTable(
   'sensor_status',
   {
     moduleId: text('module_id').notNull(),
+    chipId: text('chip_id').notNull(),
     sensorType: text('sensor_type').notNull(),
     status: text('status'),
     value: doublePrecision('value'),
@@ -66,7 +85,7 @@ export const sensorStatus = pgTable(
   },
   table => {
     return {
-      pk: primaryKey({ columns: [table.moduleId, table.sensorType] }),
+      pk: primaryKey({ columns: [table.moduleId, table.chipId, table.sensorType] }),
     }
   }
 )
@@ -75,6 +94,7 @@ export const sensorConfig = pgTable(
   'sensor_config',
   {
     moduleId: text('module_id').notNull(),
+    chipId: text('chip_id').notNull(),
     sensorType: text('sensor_type').notNull(),
     intervalSeconds: integer('interval_seconds'),
     model: text('model'),
@@ -83,7 +103,7 @@ export const sensorConfig = pgTable(
   },
   table => {
     return {
-      pk: primaryKey({ columns: [table.moduleId, table.sensorType] }),
+      pk: primaryKey({ columns: [table.moduleId, table.chipId, table.sensorType] }),
     }
   }
 )
@@ -95,14 +115,15 @@ export const measurements = pgTable(
   {
     time: timestamp('time', { withTimezone: true }).notNull(),
     moduleId: text('module_id').notNull(),
+    chipId: text('chip_id').notNull(),
     sensorType: text('sensor_type').notNull(),    // Canonical: temperature, humidity, co2, etc.
     hardwareId: text('hardware_id').notNull(),    // Source hardware: dht22, bmp280, sht40, etc.
     value: doublePrecision('value').notNull(),
   },
   table => {
     return {
-      pk: primaryKey({ columns: [table.time, table.moduleId, table.sensorType, table.hardwareId] }),
-      moduleIdTimeIdx: index('measurements_module_id_time_idx').on(table.moduleId, table.time),
+      pk: primaryKey({ columns: [table.time, table.moduleId, table.chipId, table.sensorType, table.hardwareId] }),
+      moduleIdChipIdTimeIdx: index('measurements_module_id_chip_id_time_idx').on(table.moduleId, table.chipId, table.time),
     }
   }
 )
@@ -111,6 +132,7 @@ export const measurements = pgTable(
 export const measurementsHourly = pgTable('measurements_hourly', {
   bucket: timestamp('bucket').notNull(),
   moduleId: text('module_id').notNull(),
+  chipId: text('chip_id').notNull(),
   sensorType: text('sensor_type').notNull(),
   avgValue: doublePrecision('avg_value'),
   minValue: doublePrecision('min_value'),

@@ -112,7 +112,7 @@ export class GapDetectionService {
             if (totalGaps > 0) {
                 this.logger.warn({
                     msg: `⚠️ Detected ${totalGaps} ongoing data gaps across ${Object.keys(gapsByModule).length} devices`,
-                    category: 'MONITORING',
+                    category: 'DATA_GAP',
                     source: 'SYSTEM',
                     details: {
                         totalGaps,

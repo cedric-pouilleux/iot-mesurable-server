@@ -52,33 +52,62 @@ export default fp(async (fastify: FastifyInstance) => {
       return `${moduleId} (${measurements.length}: ${sensors})`
     })
 
+    // Log MQTT reception before DB insertion
+    for (const [moduleId, measurements] of Object.entries(byDevice)) {
+      const details = measurements.map(m => {
+        const key = m.hardwareId && m.hardwareId !== 'unknown'
+          ? `${m.hardwareId}:${m.sensorType}`
+          : m.sensorType
+        return `${key}=${m.value}`
+      })
+
+      fastify.log.info({
+        msg: `Received ${measurements.length} measurements via MQTT: ${moduleId}`,
+        category: 'MQTT',
+        source: 'SYSTEM',
+        direction: 'IN',
+        moduleId,
+        count: measurements.length,
+        details: details,
+      })
+    }
+
     try {
       await mqttRepo.insertMeasurementsBatch(batch)
 
-      const deviceList = Object.keys(byDevice).join(', ')
-
-      const details = Object.entries(byDevice).flatMap(([id, measurements]) => {
-        return measurements.map(m => {
+      // Log one entry per module with moduleId in details
+      for (const [moduleId, measurements] of Object.entries(byDevice)) {
+        const details = measurements.map(m => {
           const key = m.hardwareId && m.hardwareId !== 'unknown'
             ? `${m.hardwareId}:${m.sensorType}`
             : m.sensorType
           return `${key}=${m.value}`
         })
-      })
 
-      fastify.log.info({
-        msg: `[DB] Inserted ${batch.length} measurements: ${deviceList}`,
-        count: batch.length,
-        devices: Object.keys(byDevice),
-        details: details,
-      })
+        fastify.log.info({
+          msg: `Inserted ${measurements.length} measurements: ${moduleId}`,
+          category: 'DB',
+          source: 'SYSTEM',
+          moduleId,
+          count: measurements.length,
+          details: details,
+        })
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      fastify.log.error({
-        msg: `[DB] Batch insert failed: ${errorMessage}`,
-        error: errorMessage,
-        count: batch.length,
-      })
+
+      // Log one error per module
+      for (const [moduleId, measurements] of Object.entries(byDevice)) {
+        fastify.log.error({
+          msg: `[DB] Batch insert failed: ${errorMessage}`,
+          category: 'DB',
+          source: 'SYSTEM',
+          moduleId,
+          error: errorMessage,
+          count: measurements.length,
+        })
+      }
+
       // Remettre les mesures dans le buffer en cas d'erreur (pour réessayer plus tard)
       measurementBuffer.unshift(...batch)
     }
@@ -192,23 +221,23 @@ async function handleDeviceStatusUpdate(
   mqttRepo: MqttRepository,
   update: DeviceStatusUpdate
 ): Promise<void> {
-  const { moduleId, type, data } = update
+  const { moduleId, chipId, type, data } = update
 
   switch (type) {
     case 'system':
-      await mqttRepo.updateSystemStatus(moduleId, data as SystemData)
+      await mqttRepo.updateSystemStatus(moduleId, chipId, data as SystemData)
       break
     case 'system_config':
-      await mqttRepo.updateSystemConfig(moduleId, data as SystemConfigData)
+      await mqttRepo.updateSystemConfig(moduleId, chipId, data as SystemConfigData)
       break
     case 'sensors_status':
-      await mqttRepo.updateSensorStatus(moduleId, data as SensorsStatusData)
+      await mqttRepo.updateSensorStatus(moduleId, chipId, data as SensorsStatusData)
       break
     case 'sensors_config':
-      await mqttRepo.updateSensorConfig(moduleId, data as SensorsConfigData)
+      await mqttRepo.updateSensorConfig(moduleId, chipId, data as SensorsConfigData)
       break
     case 'hardware':
-      await mqttRepo.updateHardware(moduleId, data as HardwareData)
+      await mqttRepo.updateHardware(moduleId, chipId, data as HardwareData)
       break
   }
 }

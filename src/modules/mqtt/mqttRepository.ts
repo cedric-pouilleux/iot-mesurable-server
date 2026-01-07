@@ -30,6 +30,7 @@ export class MqttRepository {
           measurements.map(m => ({
             time: m.time,
             moduleId: m.moduleId,
+            chipId: m.chipId,
             sensorType: m.sensorType,
             hardwareId: m.hardwareId,
             value: m.value,
@@ -39,6 +40,7 @@ export class MqttRepository {
           target: [
             schema.measurements.time,
             schema.measurements.moduleId,
+            schema.measurements.chipId,
             schema.measurements.sensorType,
             schema.measurements.hardwareId,
           ],
@@ -64,24 +66,29 @@ export class MqttRepository {
       })
 
       // Upsert sensor_status to keep updatedAt fresh
-      const statusUpdates = Array.from(sensorUpdates.values()).map(({ moduleId, sensorType, value }) =>
-        this.db
+      const statusUpdates = Array.from(sensorUpdates.values()).map(({ moduleId, sensorType, value }) => {
+        // Extract chipId from the measurement that has this sensorType
+        const measurement = measurements.find(m => m.moduleId === moduleId && m.sensorType === sensorType)
+        const chipId = measurement?.chipId || 'UNKNOWN'
+
+        return this.db
           .insert(schema.sensorStatus)
           .values({
             moduleId,
+            chipId,
             sensorType,
             status: 'ok',
             value,
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
-            target: [schema.sensorStatus.moduleId, schema.sensorStatus.sensorType],
+            target: [schema.sensorStatus.moduleId, schema.sensorStatus.chipId, schema.sensorStatus.sensorType],
             set: {
               value: sql`EXCLUDED.value`,
               updatedAt: sql`NOW()`,
             },
           })
-      )
+      })
 
       await Promise.all(statusUpdates)
     } catch (err) {
@@ -103,18 +110,19 @@ export class MqttRepository {
   /**
    * Update system status (real-time data: rssi, memory)
    */
-  async updateSystemStatus(moduleId: string, data: SystemData): Promise<void> {
+  async updateSystemStatus(moduleId: string, chipId: string, data: SystemData): Promise<void> {
     await this.db
       .insert(schema.deviceSystemStatus)
       .values({
         moduleId,
+        chipId,
         rssi: data.rssi ?? null,
         heapFreeKb: data.memory?.heapFreeKb ?? null,
         heapMinFreeKb: data.memory?.heapMinFreeKb ?? null,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
-        target: schema.deviceSystemStatus.moduleId,
+        target: [schema.deviceSystemStatus.moduleId, schema.deviceSystemStatus.chipId],
         set: {
           rssi: sql`EXCLUDED.rssi`,
           heapFreeKb: sql`COALESCE(EXCLUDED.heap_free_kb, device_system_status.heap_free_kb)`,
@@ -128,7 +136,7 @@ export class MqttRepository {
    * Update system configuration (static data: ip, mac, flash, etc.)
    * Now also handles rssi, heapFreeKb, heapMinFreeKb from new library format
    */
-  async updateSystemConfig(moduleId: string, data: SystemConfigData): Promise<void> {
+  async updateSystemConfig(moduleId: string, chipId: string, data: SystemConfigData): Promise<void> {
     // Calculate bootedAt from uptimeStart (seconds since boot)
     let uptimeSeconds: number | null = null
     if (typeof data.uptimeStart === 'number') {
@@ -146,6 +154,7 @@ export class MqttRepository {
       .insert(schema.deviceSystemStatus)
       .values({
         moduleId,
+        chipId,
         moduleType: data.moduleType ?? null,
         ip: data.ip ?? null,
         mac: data.mac ?? null,
@@ -165,7 +174,7 @@ export class MqttRepository {
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
-        target: schema.deviceSystemStatus.moduleId,
+        target: [schema.deviceSystemStatus.moduleId, schema.deviceSystemStatus.chipId],
         set: {
           moduleType: sql`COALESCE(EXCLUDED.module_type, device_system_status.module_type)`,
           ip: sql`COALESCE(EXCLUDED.ip, device_system_status.ip)`,
@@ -187,19 +196,20 @@ export class MqttRepository {
   /**
    * Update sensor status (batch update for multiple sensors)
    */
-  async updateSensorStatus(moduleId: string, data: SensorsStatusData): Promise<void> {
+  async updateSensorStatus(moduleId: string, chipId: string, data: SensorsStatusData): Promise<void> {
     const updates = Object.entries(data).map(([sensorType, sensor]) =>
       this.db
         .insert(schema.sensorStatus)
         .values({
           moduleId,
+          chipId,
           sensorType,
           status: sensor.status,
           value: sensor.value,
           updatedAt: new Date(),
         })
         .onConflictDoUpdate({
-          target: [schema.sensorStatus.moduleId, schema.sensorStatus.sensorType],
+          target: [schema.sensorStatus.moduleId, schema.sensorStatus.chipId, schema.sensorStatus.sensorType],
           set: {
             status: sql`EXCLUDED.status`,
             value: sql`EXCLUDED.value`,
@@ -214,12 +224,13 @@ export class MqttRepository {
   /**
    * Update sensor configuration (batch update for multiple sensors)
    */
-  async updateSensorConfig(moduleId: string, data: SensorsConfigData): Promise<void> {
+  async updateSensorConfig(moduleId: string, chipId: string, data: SensorsConfigData): Promise<void> {
     const updates = Object.entries(data).map(([sensorType, sensor]) =>
       this.db
         .insert(schema.sensorConfig)
         .values({
           moduleId,
+          chipId,
           sensorType,
           intervalSeconds: sensor.interval ?? null,
           model: sensor.model ?? null,
@@ -227,7 +238,7 @@ export class MqttRepository {
           updatedAt: new Date(),
         })
         .onConflictDoUpdate({
-          target: [schema.sensorConfig.moduleId, schema.sensorConfig.sensorType],
+          target: [schema.sensorConfig.moduleId, schema.sensorConfig.chipId, schema.sensorConfig.sensorType],
           set: {
             intervalSeconds: sql`COALESCE(EXCLUDED.interval_seconds, sensor_config.interval_seconds)`,
             model: sql`COALESCE(EXCLUDED.model, sensor_config.model)`,
@@ -243,11 +254,12 @@ export class MqttRepository {
   /**
    * Update hardware information
    */
-  async updateHardware(moduleId: string, data: HardwareData): Promise<void> {
+  async updateHardware(moduleId: string, chipId: string, data: HardwareData): Promise<void> {
     await this.db
       .insert(schema.deviceHardware)
       .values({
         moduleId,
+        chipId,
         chipModel: data.chip?.model ?? null,
         chipRev: data.chip?.rev ?? null,
         cpuFreqMhz: data.chip?.cpuFreqMhz ?? null,
@@ -256,7 +268,7 @@ export class MqttRepository {
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
-        target: schema.deviceHardware.moduleId,
+        target: [schema.deviceHardware.moduleId, schema.deviceHardware.chipId],
         set: {
           chipModel: sql`EXCLUDED.chip_model`,
           chipRev: sql`EXCLUDED.chip_rev`,

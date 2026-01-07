@@ -10,9 +10,14 @@ type TopicParts = {
   parts: string[]
 }
 
+// Cache to store chipId per moduleId (extracted from system/config messages)
+type ChipIdCache = Map<string, string>
+
 export class MqttMessageHandler {
   // Cache for delta updates - only broadcast if data changed
   private lastBroadcastedPayload: Map<string, string> = new Map()
+  // Cache for chipId per moduleId
+  private chipIdCache: ChipIdCache = new Map()
 
   constructor(
     private fastify: FastifyInstance,
@@ -59,7 +64,14 @@ export class MqttMessageHandler {
     try {
       const metadata = JSON.parse(payload)
       const type = topic.endsWith('/config') ? 'system_config' : 'system'
-      this.statusUpdateBuffer.push({ moduleId, type, data: metadata })
+
+      // Extract and cache chipId if present in system/config
+      if (type === 'system_config' && metadata.chipId) {
+        this.chipIdCache.set(moduleId, metadata.chipId)
+      }
+
+      const chipId = this.chipIdCache.get(moduleId) || 'UNKNOWN'
+      this.statusUpdateBuffer.push({ moduleId, chipId, type, data: metadata })
 
       if (this.statusUpdateBuffer.length >= 50) {
         void this.onStatusBufferFull()
@@ -84,6 +96,7 @@ export class MqttMessageHandler {
 
     try {
       const metadata = JSON.parse(payload)
+      const chipId = this.chipIdCache.get(moduleId) || 'UNKNOWN'
 
       // Check for new nested format with moduleType
       if (metadata.sensors && typeof metadata.sensors === 'object') {
@@ -91,15 +104,16 @@ export class MqttMessageHandler {
         if (metadata.moduleType) {
           this.statusUpdateBuffer.push({
             moduleId,
+            chipId,
             type: 'system_config',
             data: { moduleType: metadata.moduleType }
           })
         }
         // Use the nested sensors object for sensor status
-        this.statusUpdateBuffer.push({ moduleId, type: 'sensors_status', data: metadata.sensors })
+        this.statusUpdateBuffer.push({ moduleId, chipId, type: 'sensors_status', data: metadata.sensors })
       } else {
         // Legacy flat format - use as-is
-        this.statusUpdateBuffer.push({ moduleId, type: 'sensors_status', data: metadata })
+        this.statusUpdateBuffer.push({ moduleId, chipId, type: 'sensors_status', data: metadata })
       }
       return true
     } catch (e) {
@@ -118,7 +132,8 @@ export class MqttMessageHandler {
 
     try {
       const metadata = JSON.parse(payload)
-      this.statusUpdateBuffer.push({ moduleId, type: 'sensors_config', data: metadata })
+      const chipId = this.chipIdCache.get(moduleId) || 'UNKNOWN'
+      this.statusUpdateBuffer.push({ moduleId, chipId, type: 'sensors_config', data: metadata })
       return true
     } catch (e) {
       this.fastify.log.warn(`⚠️ Failed to parse sensors/config from ${topic}: ${e}`)
@@ -136,7 +151,8 @@ export class MqttMessageHandler {
 
     try {
       const metadata = JSON.parse(payload)
-      this.statusUpdateBuffer.push({ moduleId, type: 'hardware', data: metadata })
+      const chipId = this.chipIdCache.get(moduleId) || 'UNKNOWN'
+      this.statusUpdateBuffer.push({ moduleId, chipId, type: 'hardware', data: metadata })
       return true
     } catch (e) {
       this.fastify.log.warn(`⚠️ Failed to parse hardware/config from ${topic}: ${e}`)
@@ -165,8 +181,8 @@ export class MqttMessageHandler {
         direction: 'IN',
         moduleId,
         deviceTime: time,
-        source: 'esp32',
-        category: 'hardware',
+        source: 'SYSTEM',
+        category: 'HARDWARE',
       }
 
       // Use the appropriate Pino method based on the log level
@@ -209,7 +225,7 @@ export class MqttMessageHandler {
    * Validate sensor value to reject aberrant readings.
    * Ranges are now loaded from module manifests via the registry.
    */
-  private isValueValid(sensorType: string, value: number): boolean {
+  private isValueValid(moduleId: string, sensorType: string, value: number): boolean {
     // Get range from registry (loaded from manifests)
     const range = registry.getValidationRange(sensorType)
 
@@ -219,6 +235,9 @@ export class MqttMessageHandler {
     if (value < range.min || value > range.max) {
       this.fastify.log.warn({
         msg: `[MQTT] ⚠️ Aberrant value rejected: ${sensorType}=${value} (valid range: ${range.min}-${range.max})`,
+        category: 'MQTT',
+        source: 'SYSTEM',
+        moduleId,
         sensorType,
         value,
         min: range.min,
@@ -302,13 +321,14 @@ export class MqttMessageHandler {
       }
 
       // Validate value range
-      if (!this.isValueValid(canonicalSensorType, value)) {
+      if (!this.isValueValid(moduleId, canonicalSensorType, value)) {
         return true // Message was handled (rejected), don't try other handlers
       }
 
       this.measurementBuffer.push({
         time: now,
         moduleId,
+        chipId: this.chipIdCache.get(moduleId) || 'UNKNOWN',
         sensorType: canonicalSensorType,
         hardwareId,  // Store the hardware source
         value

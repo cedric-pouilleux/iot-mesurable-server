@@ -65,6 +65,11 @@ export class DeviceController {
       // First, get the module type to lookup the manifest
       const deviceStatus = await this.deviceRepo.getDeviceStatus(id)
       const moduleType = deviceStatus?.moduleType
+      const chipId = deviceStatus?.chipId
+
+      if (!chipId) {
+        throw this.fastify.httpErrors.badRequest(`Device ${id} not found or chipId not available`)
+      }
 
       if (config.sensors) {
         const queries: Promise<any>[] = []
@@ -91,11 +96,11 @@ export class DeviceController {
           if (shouldExpand && sensorKeys.length > 0) {
             // Save config for each sensor with composite key
             for (const compositeKey of sensorKeys) {
-              queries.push(this.deviceRepo.updateSensorConfig(id, compositeKey, interval))
+              queries.push(this.deviceRepo.updateSensorConfig(id, chipId, compositeKey, interval))
             }
           } else {
             // Fallback: treat as direct sensor type (for backwards compatibility)
-            queries.push(this.deviceRepo.updateSensorConfig(id, key, interval))
+            queries.push(this.deviceRepo.updateSensorConfig(id, chipId, key, interval))
           }
         }
 

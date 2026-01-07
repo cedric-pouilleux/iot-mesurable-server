@@ -6,8 +6,8 @@ import { systemLogs } from '../../db/schema'
 
 const LogsQuerySchema = z.object({
   category: z.union([
-    z.enum(['HARDWARE', 'MQTT', 'DB', 'API', 'WEBSOCKET']),
-    z.array(z.enum(['HARDWARE', 'MQTT', 'DB', 'API', 'WEBSOCKET']))
+    z.enum(['HARDWARE', 'MQTT', 'DB', 'API', 'WEBSOCKET', 'DATA_GAP']),
+    z.array(z.enum(['HARDWARE', 'MQTT', 'DB', 'API', 'WEBSOCKET', 'DATA_GAP']))
   ]).optional(),
   source: z.enum(['SYSTEM', 'USER']).optional(),
   direction: z.enum(['IN', 'OUT']).optional(),
@@ -86,7 +86,7 @@ const logsRoutes: FastifyPluginAsync = async fastify => {
       if (search) {
         conditions.push(
           or(
-            like(systemLogs.msg, `%${search}%`), 
+            like(systemLogs.msg, `%${search}%`),
             like(systemLogs.level, `%${search}%`),
             sql`${systemLogs.details}::text ILIKE ${'%' + search + '%'}`
           )
@@ -141,8 +141,8 @@ const logsRoutes: FastifyPluginAsync = async fastify => {
           startDate: z.string().datetime().optional(),
           endDate: z.string().datetime().optional(),
           category: z.union([
-            z.enum(['HARDWARE', 'MQTT', 'DB', 'API', 'SYSTEM', 'WEBSOCKET']),
-            z.array(z.enum(['HARDWARE', 'MQTT', 'DB', 'API', 'SYSTEM', 'WEBSOCKET']))
+            z.enum(['HARDWARE', 'MQTT', 'DB', 'API', 'SYSTEM', 'WEBSOCKET', 'DATA_GAP']),
+            z.array(z.enum(['HARDWARE', 'MQTT', 'DB', 'API', 'SYSTEM', 'WEBSOCKET', 'DATA_GAP']))
           ]).optional(),
           level: z.union([
             z.enum(['trace', 'debug', 'success', 'info', 'warn', 'error', 'fatal']),
@@ -162,7 +162,7 @@ const logsRoutes: FastifyPluginAsync = async fastify => {
     },
     async (request, reply) => {
       const { date, startDate: queryStartDate, endDate: queryEndDate, category, level, search } = request.query
-      
+
       let start: Date
       let end: Date
 
@@ -181,7 +181,7 @@ const logsRoutes: FastifyPluginAsync = async fastify => {
       }
 
       // Fixed 10-minute buckets as requested
-      const bucketSizeSeconds = 600 
+      const bucketSizeSeconds = 600
 
       let query = sql`
         SELECT
@@ -214,12 +214,12 @@ const logsRoutes: FastifyPluginAsync = async fastify => {
       }
 
       query = sql`${query} GROUP BY bucket, category ORDER BY bucket ASC`
-      
+
       const result = await fastify.db.execute(query)
 
       // Process result into slots
       const buckets: Record<string, Record<string, number>> = {}
-      
+
       // Generate all slots between start and end
       const slotMs = bucketSizeSeconds * 1000
       for (let time = start.getTime(); time <= end.getTime(); time += slotMs) {
@@ -231,11 +231,11 @@ const logsRoutes: FastifyPluginAsync = async fastify => {
       for (const row of result.rows as any[]) {
         const bucketTime = new Date(Number(row.bucket) * 1000)
         const slotKey = bucketTime.toISOString()
-        
+
         if (!buckets[slotKey]) {
           buckets[slotKey] = {}
         }
-        
+
         buckets[slotKey][row.category] = Number(row.count)
       }
 
@@ -268,7 +268,7 @@ const logsRoutes: FastifyPluginAsync = async fastify => {
     },
     async (request, reply) => {
       const result = await fastify.db.delete(systemLogs)
-      
+
       return {
         message: 'All logs deleted successfully',
         deletedCount: 0, // Drizzle doesn't return count for delete

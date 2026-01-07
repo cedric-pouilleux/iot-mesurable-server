@@ -39,7 +39,7 @@ async function flushLogs() {
   if (logBuffer.length === 0) return
 
   const logsToInsert = logBuffer.splice(0, logBuffer.length)
-  
+
   try {
     await db.insert(systemLogs).values(logsToInsert)
   } catch (err) {
@@ -75,15 +75,15 @@ export async function stopLogger() {
 export const dbLoggerStream = new Writable({
   write(chunk, encoding, callback) {
     const logEntry = chunk.toString()
-    
+
     try {
       const parsed = JSON.parse(logEntry)
-      const { level, msg, time, source, direction, ...details } = parsed
+      const { level, msg, time, source, direction, category: categoryProp, ...customDetails } = parsed
 
       const levelStr = typeof level === 'number' ? levelMap[level] || String(level) : String(level)
 
-      // Extract category from message prefix
-      let category = ''
+      // Extract category from message prefix OR use the category property if provided
+      let category = categoryProp || ''
       let cleanMsg = msg || ''
 
       // Filter out generic Fastify logs (not useful)
@@ -96,13 +96,13 @@ export const dbLoggerStream = new Writable({
         return
       }
 
-      // Match [CATEGORY] or [CATEGORY:extra] format
-      const categoryMatch = cleanMsg.match(/^\[([A-Z0-9]+)(?::[^\]]+)?\]\s*/)
+      // Match [CATEGORY] or [CATEGORY:extra] format in message
+      const categoryMatch = cleanMsg.match(/^\[([A-Z0-9_]+)(?::[^\]]+)?\]\s*/)
       if (categoryMatch) {
         category = categoryMatch[1]
-        cleanMsg = cleanMsg.replace(/^\[[A-Z0-9]+(?::[^\]]+)?\]\s*/, '')
-      } else {
-        // Skip logs without a category prefix (they would have been SYSTEM)
+        cleanMsg = cleanMsg.replace(/^\[[A-Z0-9_]+(?::[^\]]+)?\]\s*/, '')
+      } else if (!category) {
+        // Skip logs without a category (neither in prefix nor as property)
         callback()
         return
       }
@@ -115,7 +115,7 @@ export const dbLoggerStream = new Writable({
         level: levelStr,
         msg: cleanMsg,
         time: new Date(time || Date.now()),
-        details: details,
+        details: customDetails, // This will now include moduleId, deviceTime, and any other custom fields
       })
 
       // Start timer on first log

@@ -7,6 +7,7 @@
 export interface MqttMeasurement {
   time: Date
   moduleId: string
+  chipId: string        // Unique hardware identifier
   sensorType: string    // Canonical: temperature, humidity, co2, etc.
   hardwareId: string    // Source hardware: dht22, bmp280, sht40, etc.
   value: number
@@ -21,6 +22,7 @@ export type DeviceStatusUpdateType =
 
 export interface DeviceStatusUpdate {
   moduleId: string
+  chipId: string        // Unique hardware identifier
   type: DeviceStatusUpdateType
   data: SystemData | SystemConfigData | SensorsStatusData | SensorsConfigData | HardwareData
 }
@@ -38,6 +40,7 @@ export interface SystemData {
 export interface SystemConfigData {
   ip?: string
   mac?: string
+  chipId?: string      // Unique hardware identifier from firmware
   moduleType?: string  // e.g. "air-quality-bench"
   uptimeStart?: string | number
   rssi?: number  // Now included in system/config from new library

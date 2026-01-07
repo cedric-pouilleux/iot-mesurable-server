@@ -1,50 +1,59 @@
-import { Client } from 'pg';
-import * as dotenv from 'dotenv';
+#!/usr/bin/env node
+/**
+ * Check for duplicate modules in database
+ */
 
-dotenv.config();
+import pkg from 'pg'
+const { Pool } = pkg
 
-const client = new Client({
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT) || 5432,
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'postgres',
-  database: process.env.DB_NAME || 'iot_data',
-});
+const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/iot_mesurable'
+const pool = new Pool({ connectionString })
 
 async function checkDuplicates() {
+  console.log('🔍 Checking for duplicate modules...\n')
+
   try {
-    await client.connect();
-    
-    const res = await client.query(`
-      SELECT time, module_id, sensor_type, count(*)
-      FROM measurements
-      GROUP BY time, module_id, sensor_type
-      HAVING count(*) > 1
-      LIMIT 10;
-    `);
-    
-    if (res.rows.length > 0) {
-      console.log('Duplicates found:', res.rows);
-      
-      // Count total duplicates
-      const countRes = await client.query(`
-        SELECT count(*) FROM (
-          SELECT time, module_id, sensor_type
-          FROM measurements
-          GROUP BY time, module_id, sensor_type
-          HAVING count(*) > 1
-        ) as duplicates;
-      `);
-      console.log('Total duplicate groups:', countRes.rows[0].count);
-    } else {
-      console.log('No duplicates found.');
+    // Get all device_system_status entries
+    const result = await pool.query(`
+      SELECT module_id, chip_id, module_type, updated_at
+      FROM device_system_status
+      ORDER BY module_id, chip_id
+    `)
+
+    console.log(`📋 Found ${result.rows.length} entries in device_system_status:\n`)
+
+    const byModule = new Map()
+
+    for (const row of result.rows) {
+      if (!byModule.has(row.module_id)) {
+        byModule.set(row.module_id, [])
+      }
+      byModule.get(row.module_id).push(row)
+    }
+
+    for (const [moduleId, entries] of byModule) {
+      console.log(`\n📦 Module: ${moduleId}`)
+      console.log(`   Count: ${entries.length} ${entries.length > 1 ? '⚠️  DUPLICATE!' : '✅'}`)
+
+      for (const entry of entries) {
+        console.log(`   - chipId: ${entry.chip_id}`)
+        console.log(`     type: ${entry.module_type || 'null'}`)
+        console.log(`     updated: ${entry.updated_at}`)
+      }
+    }
+
+    // Check if any chipId is 'UNKNOWN'
+    const unknowns = result.rows.filter(r => r.chip_id === 'UNKNOWN')
+    if (unknowns.length > 0) {
+      console.log(`\n⚠️  Found ${unknowns.length} entries with chipId='UNKNOWN'`)
+      console.log('   These are from modules that haven\'t published their real chipId yet')
     }
 
   } catch (err) {
-    console.error('Error:', err);
+    console.error('❌ Error:', err instanceof Error ? err.message : err)
   } finally {
-    await client.end();
+    await pool.end()
   }
 }
 
-checkDuplicates();
+checkDuplicates()
