@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { registry } from '../../core/registry'
-
+import { encodeModuleId, decodeModuleId } from '../../utils/moduleIdentifier'
 
 import { DeviceRepository } from './deviceRepository'
 import { HealthService } from './healthService'
@@ -35,8 +35,9 @@ export class DeviceController {
     try {
       const rows = await this.deviceRepo.getAllModules()
       const modules: ModuleListItem[] = rows.map(row => {
-        const id = row.moduleId
-        const name = id.split('/').pop() || id
+        // Encode composite ID
+        const id = encodeModuleId(row.moduleId, row.chipId)
+        const name = row.moduleId.split('/').pop() || row.moduleId
         // Use type from DB if available, otherwise 'unknown'
         const type = row.moduleType || 'unknown'
 
@@ -44,7 +45,7 @@ export class DeviceController {
         const manifest = registry.getManifest(type)
         const category = manifest?.type
 
-        return { id, name, type, category, status: null }
+        return { id, name, type, category, chipId: row.chipId, status: null }
       })
       return modules
     } catch (err) {
@@ -62,12 +63,15 @@ export class DeviceController {
     const config: ModuleConfig = req.body
 
     try {
-      // First, get the module type to lookup the manifest
-      const deviceStatus = await this.deviceRepo.getDeviceStatus(id)
-      const moduleType = deviceStatus?.moduleType
-      const chipId = deviceStatus?.chipId
+      // Decode composite ID
+      const { moduleId, chipId } = decodeModuleId(id)
 
-      if (!chipId) {
+      // First, get the module type to lookup the manifest
+      const deviceStatus = await this.deviceRepo.getDeviceStatus(moduleId, chipId)
+      const moduleType = deviceStatus?.moduleType
+      const existingChipId = deviceStatus?.chipId
+
+      if (!existingChipId) {
         throw this.fastify.httpErrors.badRequest(`Device ${id} not found or chipId not available`)
       }
 
@@ -96,11 +100,11 @@ export class DeviceController {
           if (shouldExpand && sensorKeys.length > 0) {
             // Save config for each sensor with composite key
             for (const compositeKey of sensorKeys) {
-              queries.push(this.deviceRepo.updateSensorConfig(id, chipId, compositeKey, interval))
+              queries.push(this.deviceRepo.updateSensorConfig(moduleId, chipId, compositeKey, interval))
             }
           } else {
             // Fallback: treat as direct sensor type (for backwards compatibility)
-            queries.push(this.deviceRepo.updateSensorConfig(id, chipId, key, interval))
+            queries.push(this.deviceRepo.updateSensorConfig(moduleId, chipId, key, interval))
           }
         }
 
@@ -139,14 +143,14 @@ export class DeviceController {
         const changesSummary = Object.entries(mqttConfig.sensors || {})
           .map(([sensor, cfg]) => `${sensor}=${cfg.interval}s`)
           .join(', ')
-        this.fastify.log.info({ msg: `[API] Config modifiée [${id}]: ${changesSummary}`, source: 'USER', moduleId: id, changes: mqttConfig.sensors })
+        this.fastify.log.info({ msg: `[API] Config modifiée [${moduleId}]: ${changesSummary}`, source: 'USER', moduleId, changes: mqttConfig.sensors })
         const response: ConfigUpdateResponse = {
           success: true,
           message: 'Configuration updated and published',
         }
         return response
       } else {
-        this.fastify.log.error({ msg: `[API] Échec modification configuration`, source: 'USER', moduleId: id, error: 'Failed to publish' })
+        this.fastify.log.error({ msg: `[API] Échec modification configuration`, source: 'USER', moduleId, error: 'Failed to publish' })
         throw this.fastify.httpErrors.internalServerError('Failed to publish configuration')
       }
     } catch (err) {
@@ -164,16 +168,18 @@ export class DeviceController {
     const { sensor } = req.body
 
     try {
-      const published = this.fastify.publishReset(id, sensor)
+      // Decode composite ID to get moduleId for MQTT
+      const { moduleId } = decodeModuleId(id)
+      const published = this.fastify.publishReset(moduleId, sensor)
 
       if (published) {
-        this.fastify.log.info({ msg: `[API] Reset capteur demandé: ${sensor}`, source: 'USER', moduleId: id, sensor })
+        this.fastify.log.info({ msg: `[API] Reset capteur demandé: ${sensor}`, source: 'USER', moduleId, sensor })
         return {
           success: true,
           message: `Reset command sent for sensor ${sensor}`,
         }
       } else {
-        this.fastify.log.error({ msg: `[API] Échec reset capteur`, source: 'USER', moduleId: id, sensor, error: 'Failed to publish' })
+        this.fastify.log.error({ msg: `[API] Échec reset capteur`, source: 'USER', moduleId, sensor, error: 'Failed to publish' })
         throw this.fastify.httpErrors.internalServerError('Failed to publish reset command')
       }
     } catch (err) {
@@ -191,8 +197,10 @@ export class DeviceController {
     const { hardware, enabled } = req.body
 
     try {
+      // Decode composite ID to get moduleId for MQTT
+      const { moduleId } = decodeModuleId(id)
       // Publish enable command to MQTT
-      const topic = `${id}/sensors/enable`
+      const topic = `${moduleId}/sensors/enable`
       const payload = JSON.stringify({ hardware, enabled })
       const published = this.fastify.mqtt.publish(topic, payload)
 
@@ -238,7 +246,8 @@ export class DeviceController {
     const preferences = req.body
 
     try {
-      await this.deviceRepo.updatePreferences(id, preferences)
+      const { moduleId } = decodeModuleId(id)
+      await this.deviceRepo.updatePreferences(moduleId, preferences)
       this.fastify.log.info({ msg: `[API] Préférences modifiées`, source: 'USER', moduleId: id, preferences })
       return {
         success: true,
@@ -259,7 +268,8 @@ export class DeviceController {
     const { id } = req.params
 
     try {
-      await this.deviceRepo.removeFromZone(id)
+      const { moduleId } = decodeModuleId(id)
+      await this.deviceRepo.removeFromZone(moduleId)
       this.fastify.log.info({ msg: `[API] Module retiré de sa zone`, source: 'USER', moduleId: id })
       return {
         success: true,
@@ -279,7 +289,8 @@ export class DeviceController {
   ) => {
     const { id } = req.params
     try {
-      return await this.buildStatus(id)
+      const { moduleId, chipId } = decodeModuleId(id)
+      return await this.buildStatus(moduleId, chipId)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       this.fastify.log.error(`Error fetching status: ${errorMessage}`)
@@ -295,7 +306,8 @@ export class DeviceController {
     const { id } = req.params
     const { days, bucket } = req.query
     try {
-      return await this.buildHistory(id, days, bucket)
+      const { moduleId, chipId } = decodeModuleId(id)
+      return await this.buildHistory(moduleId, chipId, days, bucket)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       this.fastify.log.error(`Error fetching history: ${errorMessage}`)
@@ -311,9 +323,10 @@ export class DeviceController {
     const { id } = req.params
     const { days } = req.query
     try {
+      const { moduleId, chipId } = decodeModuleId(id)
       const [status, sensors] = await Promise.all([
-        this.buildStatus(id),
-        this.buildHistory(id, days),
+        this.buildStatus(moduleId, chipId),
+        this.buildHistory(moduleId, chipId, days),
       ])
       return { status, sensors } as ModuleDataResponse
     } catch (err) {
@@ -330,7 +343,8 @@ export class DeviceController {
   ) => {
     const { id } = req.params
     try {
-      const health = await this.healthService.getDeviceHealth(id)
+      const { moduleId, chipId } = decodeModuleId(id)
+      const health = await this.healthService.getDeviceHealth(moduleId)
       return health
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
@@ -346,9 +360,10 @@ export class DeviceController {
   ) => {
     const { id } = req.params
     try {
+      const { moduleId, chipId } = decodeModuleId(id)
       const [storageStats, sensorConfigRows] = await Promise.all([
-        this.deviceRepo.getModuleStorageStats(id),
-        this.deviceRepo.getSensorConfig(id),
+        this.deviceRepo.getModuleStorageStats(moduleId),
+        this.deviceRepo.getSensorConfig(moduleId, chipId),
       ])
 
       const activeSensors = sensorConfigRows
@@ -385,11 +400,11 @@ export class DeviceController {
 
   // --- Private helpers ---
 
-  private async buildStatus(moduleId: string): Promise<DeviceStatus> {
+  private async buildStatus(moduleId: string, chipId: string): Promise<DeviceStatus> {
     const [statusRow, sensorStatusRows, sensorConfigRows] = await Promise.all([
-      this.deviceRepo.getDeviceStatus(moduleId),
-      this.deviceRepo.getSensorStatus(moduleId),
-      this.deviceRepo.getSensorConfig(moduleId),
+      this.deviceRepo.getDeviceStatus(moduleId, chipId),
+      this.deviceRepo.getSensorStatus(moduleId, chipId),
+      this.deviceRepo.getSensorConfig(moduleId, chipId),
     ])
 
     const status: DeviceStatus = {}
@@ -517,8 +532,8 @@ export class DeviceController {
     return status
   }
 
-  private async buildHistory(moduleId: string, days: number, bucket: string = 'auto') {
-    const historyRows = await this.deviceRepo.getHistoryData(moduleId, days, bucket)
+  private async buildHistory(moduleId: string, chipId: string, days: number, bucket: string = 'auto') {
+    const historyRows = await this.deviceRepo.getHistoryData(moduleId, chipId, days, bucket)
 
     const sensors: Record<string, SensorDataPoint[]> = {}
 
@@ -551,7 +566,8 @@ export class DeviceController {
     const { id } = req.params
 
     try {
-      const result = await this.deviceRepo.deleteModule(id)
+      const { moduleId } = decodeModuleId(id)
+      const result = await this.deviceRepo.deleteModule(moduleId)
       this.fastify.log.info(`🗑️ Module ${id} deleted (tables: ${result.deletedTables.join(', ')})`)
       return { success: true, message: `Module ${id} deleted`, ...result }
     } catch (err) {

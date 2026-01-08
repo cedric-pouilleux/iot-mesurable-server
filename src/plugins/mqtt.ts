@@ -37,8 +37,25 @@ export default fp(async (fastify: FastifyInstance) => {
       return
     }
 
-    const batch = [...measurementBuffer]
+    const allMeasurements = [...measurementBuffer]
     measurementBuffer.length = 0
+
+    // Filter out measurements with UNKNOWN chipId to prevent ghost module entries
+    // These come from messages received before system/config (which provides chipId)
+    const batch = allMeasurements.filter(m => m.chipId !== 'UNKNOWN')
+    const skipped = allMeasurements.length - batch.length
+
+    if (skipped > 0) {
+      fastify.log.debug({
+        msg: `Skipped ${skipped} measurements with UNKNOWN chipId`,
+        category: 'MQTT',
+        source: 'SYSTEM'
+      })
+    }
+
+    if (batch.length === 0) {
+      return
+    }
 
     // Group by device for better logging
     const byDevice = batch.reduce((acc, m) => {
@@ -116,11 +133,35 @@ export default fp(async (fastify: FastifyInstance) => {
   async function flushStatusUpdates() {
     if (statusUpdateBuffer.length === 0) return
 
-    const batch = [...statusUpdateBuffer]
+    const allUpdates = [...statusUpdateBuffer]
     statusUpdateBuffer.length = 0
+
+    // Filter out updates with UNKNOWN chipId, except system_config which carries the chipId
+    // system_config is the message that provides chipId, so we must allow it through
+    const batch = allUpdates.filter(u => {
+      // Allow system_config even with UNKNOWN chipId if it contains chipId in payload
+      if (u.type === 'system_config' && (u.data as any)?.chipId) {
+        return true
+      }
+      // Filter out other messages with UNKNOWN chipId
+      return u.chipId !== 'UNKNOWN'
+    })
+
+    const skipped = allUpdates.length - batch.length
+    if (skipped > 0) {
+      fastify.log.debug({
+        msg: `Skipped ${skipped} status updates with UNKNOWN chipId`,
+        category: 'MQTT',
+        source: 'SYSTEM'
+      })
+    }
 
     for (const update of batch) {
       try {
+        // For system_config with chipId in payload, use that chipId
+        if (update.type === 'system_config' && (update.data as any)?.chipId) {
+          update.chipId = (update.data as any).chipId
+        }
         await handleDeviceStatusUpdate(mqttRepo, update)
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error'

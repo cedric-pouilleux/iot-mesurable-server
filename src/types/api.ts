@@ -95,10 +95,11 @@ export interface ModuleDataResponse {
 }
 
 export interface ModuleListItem {
-  id: string
-  name: string
+  id: string          // Composite: "moduleId@chipId"
+  name: string        // Display name (e.g., "air-quality")
   type: string
   category?: string
+  chipId: string      // For UI display/badges
   status: null
 }
 

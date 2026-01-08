@@ -49,8 +49,8 @@
       ]
     },
     {
-      "key": "sht40",
-      "name": "SHT40",
+      "key": "sht31",
+      "name": "SHT31",
       "type": "sensor",
       "sensors": [
         "temperature",

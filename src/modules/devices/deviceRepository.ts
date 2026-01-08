@@ -1,5 +1,5 @@
 import { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import * as schema from '../../db/schema'
 
 export class DeviceRepository {
@@ -16,7 +16,7 @@ export class DeviceRepository {
       .orderBy(schema.deviceSystemStatus.moduleId, schema.deviceSystemStatus.chipId)
   }
 
-  async getDeviceStatus(moduleId: string) {
+  async getDeviceStatus(moduleId: string, chipId: string) {
     const result = await this.db
       .select({
         moduleId: schema.deviceSystemStatus.moduleId,
@@ -44,32 +44,50 @@ export class DeviceRepository {
       .from(schema.deviceSystemStatus)
       .leftJoin(
         schema.deviceHardware,
-        eq(schema.deviceSystemStatus.moduleId, schema.deviceHardware.moduleId)
+        and(
+          eq(schema.deviceSystemStatus.moduleId, schema.deviceHardware.moduleId),
+          eq(schema.deviceSystemStatus.chipId, schema.deviceHardware.chipId)
+        )
       )
       .leftJoin(
         schema.zones,
         eq(schema.deviceSystemStatus.zoneId, schema.zones.id)
       )
-      .where(eq(schema.deviceSystemStatus.moduleId, moduleId))
+      .where(
+        and(
+          eq(schema.deviceSystemStatus.moduleId, moduleId),
+          eq(schema.deviceSystemStatus.chipId, chipId)
+        )
+      )
 
     return result[0] || null
   }
 
-  async getSensorStatus(moduleId: string) {
+  async getSensorStatus(moduleId: string, chipId: string) {
     return this.db
       .select()
       .from(schema.sensorStatus)
-      .where(eq(schema.sensorStatus.moduleId, moduleId))
+      .where(
+        and(
+          eq(schema.sensorStatus.moduleId, moduleId),
+          eq(schema.sensorStatus.chipId, chipId)
+        )
+      )
   }
 
-  async getSensorConfig(moduleId: string) {
+  async getSensorConfig(moduleId: string, chipId: string) {
     return this.db
       .select()
       .from(schema.sensorConfig)
-      .where(eq(schema.sensorConfig.moduleId, moduleId))
+      .where(
+        and(
+          eq(schema.sensorConfig.moduleId, moduleId),
+          eq(schema.sensorConfig.chipId, chipId)
+        )
+      )
   }
 
-  async getHistoryData(moduleId: string, days: number, bucket: string = 'auto') {
+  async getHistoryData(moduleId: string, chipId: string, days: number, bucket: string = 'auto') {
     const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
 
     // Déterminer le niveau d'agrégation
@@ -98,7 +116,7 @@ export class DeviceRepository {
       query = sql`
         SELECT time_bucket(${aggregation}, time) as time, sensor_type as "sensorType", hardware_id as "hardwareId", AVG(value) as value
         FROM measurements
-        WHERE module_id = ${moduleId} AND time > ${cutoffDate}
+        WHERE module_id = ${moduleId} AND chip_id = ${chipId} AND time > ${cutoffDate}
         GROUP BY 1, sensor_type, hardware_id
         ORDER BY time DESC
       `
@@ -106,7 +124,7 @@ export class DeviceRepository {
       query = sql`
         SELECT time, sensor_type as "sensorType", hardware_id as "hardwareId", value
         FROM measurements
-        WHERE module_id = ${moduleId} AND time > ${cutoffDate}
+        WHERE module_id = ${moduleId} AND chip_id = ${chipId} AND time > ${cutoffDate}
         ORDER BY time DESC
       `
     }

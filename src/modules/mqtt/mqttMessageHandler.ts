@@ -278,6 +278,10 @@ export class MqttMessageHandler {
           'temperature': 'temperature',  // Now canonical (was temp_sht)
           'humidity': 'humidity'         // Now canonical (was hum_sht)
         },
+        'sht31': {
+          'temperature': 'temperature',
+          'humidity': 'humidity'
+        },
         'dht22': {
           'temperature': 'temperature',
           'humidity': 'humidity'
@@ -466,6 +470,7 @@ export class MqttMessageHandler {
     const wsData = this.prepareWebSocketData(topic, payload, parsed, now)
     if (wsData && this.fastify.io) {
       const clientCount = this.fastify.io.sockets.sockets.size
+      console.log(`[SOCKET DEBUG] Topic: ${topic}, Clients: ${clientCount}, wsData: ${wsData ? 'OK' : 'null'}`)
       if (clientCount > 0) {
         // REMOVED DELTA CHECK: We want to send updates even if value is same, 
         // so the frontend knows the sensor is still alive (timestamp refresh).

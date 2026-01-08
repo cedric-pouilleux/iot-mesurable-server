@@ -45,6 +45,10 @@ export const CANONICAL_MAPPINGS: Record<string, Record<string, string>> = {
         temperature: 'temperature',
         humidity: 'humidity',
     },
+    sht31: {
+        temperature: 'temperature',
+        humidity: 'humidity',
+    },
     dht22: {
         temperature: 'temperature',
         humidity: 'humidity',
