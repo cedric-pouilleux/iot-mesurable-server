@@ -36,22 +36,38 @@ const client = mqtt.connect(config.mqtt.broker, {
 
 ### Structure
 
+Le système utilise deux formats de topics :
+
+**Configuration/Status** :
 ```
-{module_id}/{type}[/{sensor_type}]
+{module_id}/{category}[/{subcategory}]
+```
+
+**Mesures capteurs (Hardware-aware)** :
+```
+{module_id}/{hardware_id}/{measurement_type}
 ```
 
 **Exemples** :
 
 ```
+# Configuration & Status
 croissance/system
 croissance/system/config
 croissance/sensors/status
 croissance/sensors/config
 croissance/hardware/config
-croissance/co2
-croissance/temperature
-croissance/humidity
+
+# Mesures capteurs (format hardware-aware)
+croissance/dht22/temperature
+croissance/dht22/humidity
+croissance/sht31/temperature
+croissance/sht31/humidity
+croissance/bmp280/pressure
+croissance/sgp40/voc
 ```
+
+> **Note** : Le format `{module_id}/{hardware_id}/{measurement}` permet d'identifier précisément la source d'une mesure quand plusieurs capteurs mesurent le même type (ex: DHT22 et SHT31 mesurent tous deux température et humidité).
 
 ### Types de Messages
 
@@ -81,6 +97,8 @@ croissance/humidity
 
 ```json
 {
+  "chipId": "0000347B4EE81F84",
+  "moduleType": "air-quality",
   "ip": "192.168.1.100",
   "mac": "AA:BB:CC:DD:EE:FF",
   "uptimeStart": 1234567890,
@@ -90,12 +108,16 @@ croissance/humidity
     "systemKb": 200
   },
   "memory": {
-    "heapTotalKb": 320
+    "heapTotalKb": 320,
+    "heapFreeKb": 280,
+    "heapMinFreeKb": 150
   }
 }
 ```
 
-**Action** : Mise à jour `device_system_status` (mapping automatique DB snake_case)
+> **Important** : Le `chipId` est l'identifiant unique du hardware (dérivé de l'adresse MAC). Il est utilisé comme clé primaire composite avec `moduleId` pour identifier uniquement chaque device physique, même si plusieurs ont le même `moduleId`.
+
+**Action** : Mise à jour `device_system_status` avec clé `(module_id, chip_id)`
 
 #### Hardware Config
 
@@ -117,20 +139,25 @@ croissance/humidity
 
 **Action** : Mise à jour `device_hardware` (mapping automatique DB snake_case)
 
-#### Sensor Data
+#### Sensor Data (Hardware-aware)
 
-**Topic** : `{module_id}/{sensor_type}`
+**Topic** : `{module_id}/{hardware_id}/{measurement_type}`
 
-**Payload** :
+**Exemples** :
+- `croissance/dht22/temperature`
+- `croissance/sht31/humidity`
+- `croissance/bmp280/pressure`
+- `croissance/sgp40/voc`
 
-```json
-{
-  "value": 450.5,
-  "time": "2025-11-30T19:00:00Z"
-}
+**Payload** : Valeur numérique brute
+
+```
+22.5
 ```
 
-**Action** : Buffer → Batch insert `measurements`
+**Action** : Buffer → Batch insert `measurements` avec `hardware_id` et `chip_id`
+
+> **Note** : Le `hardware_id` (ex: "dht22", "sht31") permet de distinguer les mesures provenant de différents capteurs physiques, même si le type de mesure est identique.
 
 ## Buffering
 

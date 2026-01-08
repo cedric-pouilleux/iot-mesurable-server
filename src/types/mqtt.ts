@@ -9,7 +9,7 @@ export interface MqttMeasurement {
   moduleId: string
   chipId: string        // Unique hardware identifier
   sensorType: string    // Canonical: temperature, humidity, co2, etc.
-  hardwareId: string    // Source hardware: dht22, bmp280, sht40, etc.
+  hardwareId: string    // Source hardware: dht22, bmp280, sht31, sht40, sgp40, etc.
   value: number
 }
 

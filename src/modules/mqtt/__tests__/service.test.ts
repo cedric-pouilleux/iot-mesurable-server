@@ -169,6 +169,8 @@ describe('getCanonicalSensorType', () => {
         expect(getCanonicalSensorType('dht22', 'humidity')).toBe('humidity')
         expect(getCanonicalSensorType('bmp280', 'pressure')).toBe('pressure')
         expect(getCanonicalSensorType('sht40', 'temperature')).toBe('temperature')
+        expect(getCanonicalSensorType('sht31', 'temperature')).toBe('temperature')
+        expect(getCanonicalSensorType('sht31', 'humidity')).toBe('humidity')
         expect(getCanonicalSensorType('sgp30', 'tvoc')).toBe('tvoc')
         expect(getCanonicalSensorType('sgp40', 'voc')).toBe('voc')
     })
@@ -182,7 +184,7 @@ describe('getCanonicalSensorType', () => {
     })
 
     it('should have all expected hardware in CANONICAL_MAPPINGS', () => {
-        const expectedHardware = ['bmp280', 'sht40', 'dht22', 'sgp30', 'sgp40', 'sps30', 'mhz14a', 'mq7']
+        const expectedHardware = ['bmp280', 'sht40', 'sht31', 'dht22', 'sgp30', 'sgp40', 'sps30', 'mhz14a', 'mq7']
         for (const hw of expectedHardware) {
             expect(CANONICAL_MAPPINGS).toHaveProperty(hw)
         }

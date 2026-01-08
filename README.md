@@ -73,6 +73,15 @@ Voir [Database Documentation](./docs/database.md#conventions-de-nommage) pour pl
 
 ## 📜 Recent Changes
 
+**Jan 2026** - ChipId Identification & Hardware-Aware Sensors
+
+- Added `chipId` for unique hardware identification (derived from MAC address)
+- Composite primary keys: `(module_id, chip_id)` for all device tables
+- Hardware-aware sensor topics: `{module_id}/{hardware_id}/{measurement}`
+- Supports multiple sensors measuring same type (e.g., DHT22 and SHT31 both measure temperature)
+- Renamed SHT40 → SHT31 in manifest to match actual hardware
+- Added protection against UNKNOWN chipId entries in database
+
 **Dec 2025** - Data Consistency & Timezone Fixes
 
 - Fixed timezone issues: `measurements.time` now uses `TIMESTAMPTZ`

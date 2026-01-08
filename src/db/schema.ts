@@ -117,7 +117,7 @@ export const measurements = pgTable(
     moduleId: text('module_id').notNull(),
     chipId: text('chip_id').notNull(),
     sensorType: text('sensor_type').notNull(),    // Canonical: temperature, humidity, co2, etc.
-    hardwareId: text('hardware_id').notNull(),    // Source hardware: dht22, bmp280, sht40, etc.
+    hardwareId: text('hardware_id').notNull(),    // Source hardware: dht22, bmp280, sht31, sht40, etc.
     value: doublePrecision('value').notNull(),
   },
   table => {

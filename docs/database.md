@@ -16,14 +16,16 @@
 
 #### `device_system_status`
 
-Statut système des modules IoT
+Statut système des modules IoT. Utilise une clé primaire composite `(module_id, chip_id)` pour identifier uniquement chaque device physique.
 
 ```sql
 CREATE TABLE device_system_status (
-    module_id TEXT PRIMARY KEY,
+    module_id TEXT NOT NULL,
+    chip_id TEXT NOT NULL,           -- Identifiant unique hardware (ex: "0000347B4EE81F84")
+    module_type TEXT,                -- Type de module (ex: "air-quality")
     ip TEXT,
     mac TEXT,
-    uptime_start BIGINT,
+    booted_at TIMESTAMPTZ,           -- Calculé depuis uptime
     rssi INTEGER,
     flash_used_kb INTEGER,
     flash_free_kb INTEGER,
@@ -31,7 +33,10 @@ CREATE TABLE device_system_status (
     heap_total_kb INTEGER,
     heap_free_kb INTEGER,
     heap_min_free_kb INTEGER,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    zone_id TEXT REFERENCES zones(id),
+    preferences JSONB DEFAULT '{}',
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (module_id, chip_id)
 );
 ```
 
@@ -41,28 +46,31 @@ Informations matérielles (CPU, flash, etc.)
 
 ```sql
 CREATE TABLE device_hardware (
-    module_id TEXT PRIMARY KEY,
+    module_id TEXT NOT NULL,
+    chip_id TEXT NOT NULL,
     chip_model TEXT,
     chip_rev INTEGER,
     cpu_freq_mhz INTEGER,
     flash_kb INTEGER,
     cores INTEGER,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (module_id, chip_id)
 );
 ```
 
 #### `sensor_status`
 
-Statut actuel des capteurs
+Statut actuel des capteurs. Le `sensor_type` utilise le format composite `hardware_id:measurement` (ex: `dht22:temperature`).
 
 ```sql
 CREATE TABLE sensor_status (
     module_id TEXT NOT NULL,
-    sensor_type TEXT NOT NULL,
-    status TEXT,
+    chip_id TEXT NOT NULL,
+    sensor_type TEXT NOT NULL,   -- Format: "hardware_id:measurement" (ex: "dht22:temperature")
+    status TEXT,                 -- 'ok', 'missing', 'unknown', 'disabled'
     value DOUBLE PRECISION,
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (module_id, sensor_type)
+    PRIMARY KEY (module_id, chip_id, sensor_type)
 );
 ```
 
@@ -73,26 +81,29 @@ Configuration des capteurs
 ```sql
 CREATE TABLE sensor_config (
     module_id TEXT NOT NULL,
-    sensor_type TEXT NOT NULL,
+    chip_id TEXT NOT NULL,
+    sensor_type TEXT NOT NULL,   -- Format: "hardware_id:measurement" (ex: "sht31:humidity")
     interval_seconds INTEGER,
     model TEXT,
     enabled BOOLEAN DEFAULT true,
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (module_id, sensor_type)
+    PRIMARY KEY (module_id, chip_id, sensor_type)
 );
 ```
 
 #### `measurements` (TimescaleDB Hypertable)
 
-Mesures des capteurs (séries temporelles)
+Mesures des capteurs (séries temporelles). Stocke chaque lecture avec le `hardware_id` pour permettre le regroupement par capteur physique.
 
 ```sql
 CREATE TABLE measurements (
     time TIMESTAMPTZ NOT NULL,
     module_id TEXT NOT NULL,
-    sensor_type TEXT NOT NULL,
+    chip_id TEXT NOT NULL,
+    sensor_type TEXT NOT NULL,    -- Type de mesure canonique (ex: "temperature", "humidity")
+    hardware_id TEXT NOT NULL,    -- Identifiant hardware (ex: "dht22", "sht31")
     value DOUBLE PRECISION NOT NULL,
-    PRIMARY KEY (time, module_id, sensor_type)
+    PRIMARY KEY (time, module_id, chip_id, sensor_type, hardware_id)
 );
 
 -- Convertir en hypertable TimescaleDB
