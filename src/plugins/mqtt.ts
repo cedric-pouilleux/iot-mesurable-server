@@ -171,12 +171,12 @@ export default fp(async (fastify: FastifyInstance) => {
   }
 
   // Flush périodique toutes les 5 secondes
-  setInterval(() => {
+  const flushMeasurementsInterval = setInterval(() => {
     void flushMeasurements()
   }, FLUSH_INTERVAL)
 
   // Flush des status updates toutes les 2.5 secondes
-  setInterval(() => {
+  const flushStatusUpdatesInterval = setInterval(() => {
     void flushStatusUpdates()
   }, FLUSH_INTERVAL / 2)
 
@@ -250,11 +250,24 @@ export default fp(async (fastify: FastifyInstance) => {
     return true
   })
 
-  fastify.addHook('onClose', (instance, done) => {
-    flushMeasurements()
-    flushStatusUpdates()
-    client.end()
-    done()
+  fastify.addHook('onClose', async (instance) => {
+    clearInterval(flushMeasurementsInterval)
+    clearInterval(flushStatusUpdatesInterval)
+    
+    try {
+      // Attempt to flush remaining data
+      // Note: This might fail if the DB connection is already closed by dbPlugin
+      await Promise.allSettled([
+        flushMeasurements(),
+        flushStatusUpdates()
+      ])
+    } catch (err) {
+      instance.log.warn('[MQTT] Flush on close failed (likely DB closed)')
+    }
+
+    if (client) {
+      client.end()
+    }
   })
 })
 

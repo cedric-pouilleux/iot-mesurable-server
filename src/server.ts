@@ -50,6 +50,22 @@ async function start() {
 
     console.log(`🚀 Server running at http://localhost:${config.api.port}`)
     console.log(`📚 Documentation at http://localhost:${config.api.port}/documentation`)
+
+    // Graceful shutdown
+    const signalHandler = async (signal: string) => {
+      app.log.info({ msg: `${signal} received. Closing server...` })
+      try {
+        await app.close()
+        app.log.info({ msg: 'Server closed successfully' })
+        process.exit(0)
+      } catch (err) {
+        app.log.error({ msg: 'Error closing server', error: err })
+        process.exit(1)
+      }
+    }
+
+    process.on('SIGINT', () => signalHandler('SIGINT'))
+    process.on('SIGTERM', () => signalHandler('SIGTERM'))
   } catch (err) {
     app.log.error(err)
     process.exit(1)
