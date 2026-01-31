@@ -4,4 +4,4 @@ import * as schema from './schema'
 import { config } from '../config/env'
 
 export const pool = new Pool(config.db)
-export const db = drizzle(pool, { schema })
+export const db = drizzle(pool, { schema, logger: true })
