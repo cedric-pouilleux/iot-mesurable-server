@@ -448,6 +448,10 @@ export class DeviceController {
         status.zoneName = statusRow.zoneName
       }
 
+      if (statusRow.moduleType) {
+        status.moduleType = statusRow.moduleType
+      }
+
       // Add module type
       if (statusRow.moduleType) {
         status.moduleType = statusRow.moduleType
