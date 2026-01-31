@@ -133,25 +133,18 @@ export class MqttRepository {
    * Update system status (real-time data: rssi, memory)
    */
   async updateSystemStatus(moduleId: string, chipId: string, data: SystemData): Promise<void> {
-    await this.db
-      .insert(schema.deviceSystemStatus)
-      .values({
-        moduleId,
-        chipId,
-        rssi: data.rssi ?? null,
-        heapFreeKb: data.memory?.heapFreeKb ?? null,
-        heapMinFreeKb: data.memory?.heapMinFreeKb ?? null,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [schema.deviceSystemStatus.moduleId, schema.deviceSystemStatus.chipId],
-        set: {
-          rssi: sql`EXCLUDED.rssi`,
-          heapFreeKb: sql`COALESCE(EXCLUDED.heap_free_kb, device_system_status.heap_free_kb)`,
-          heapMinFreeKb: sql`COALESCE(EXCLUDED.heap_min_free_kb, device_system_status.heap_min_free_kb)`,
-          updatedAt: sql`NOW()`,
-        },
-      })
+    await this.db.execute(sql`
+      INSERT INTO device_system_status (
+        module_id, chip_id, rssi, heap_free_kb, heap_min_free_kb, updated_at
+      ) VALUES (
+        ${moduleId}, ${chipId}, ${data.rssi ?? null}, ${data.memory?.heapFreeKb ?? null}, ${data.memory?.heapMinFreeKb ?? null}, NOW()
+      )
+      ON CONFLICT (module_id, chip_id) DO UPDATE SET
+        rssi = EXCLUDED.rssi,
+        heap_free_kb = COALESCE(EXCLUDED.heap_free_kb, device_system_status.heap_free_kb),
+        heap_min_free_kb = COALESCE(EXCLUDED.heap_min_free_kb, device_system_status.heap_min_free_kb),
+        updated_at = NOW()
+    `)
   }
 
   /**
@@ -172,47 +165,41 @@ export class MqttRepository {
       ? new Date(Date.now() - uptimeSeconds * 1000)
       : null
 
-    await this.db
-      .insert(schema.deviceSystemStatus)
-      .values({
-        moduleId,
-        chipId,
-        moduleType: data.moduleType ?? null,
-        ip: data.ip ?? null,
-        mac: data.mac ?? null,
-        bootedAt: bootedAt,
-        rssi: data.rssi ?? null,
-        flashUsedKb: data.flash?.usedKb ?? null,
-        flashFreeKb: data.flash?.freeKb ?? null,
-        // Calculate system usage if not provided: Total - Used (Sketch) - Free (OTA)
-        flashSystemKb: data.flash?.systemKb ?? (
-          (data.flash?.totalKb && data.flash?.usedKb && data.flash?.freeKb)
-            ? Math.max(0, data.flash.totalKb - data.flash.usedKb - data.flash.freeKb)
-            : null
-        ),
-        heapTotalKb: data.memory?.heapTotalKb ?? null,
-        heapFreeKb: data.memory?.heapFreeKb ?? null,
-        heapMinFreeKb: data.memory?.heapMinFreeKb ?? null,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [schema.deviceSystemStatus.moduleId, schema.deviceSystemStatus.chipId],
-        set: {
-          moduleType: sql`COALESCE(EXCLUDED.module_type, device_system_status.module_type)`,
-          ip: sql`COALESCE(EXCLUDED.ip, device_system_status.ip)`,
-          mac: sql`COALESCE(EXCLUDED.mac, device_system_status.mac)`,
-          // bootedAt: update only if new value is not null, otherwise keep existing
-          bootedAt: sql`COALESCE(EXCLUDED.booted_at, device_system_status.booted_at)`,
-          rssi: sql`COALESCE(EXCLUDED.rssi, device_system_status.rssi)`,
-          flashUsedKb: sql`COALESCE(EXCLUDED.flash_used_kb, device_system_status.flash_used_kb)`,
-          flashFreeKb: sql`COALESCE(EXCLUDED.flash_free_kb, device_system_status.flash_free_kb)`,
-          flashSystemKb: sql`COALESCE(EXCLUDED.flash_system_kb, device_system_status.flash_system_kb)`,
-          heapTotalKb: sql`COALESCE(EXCLUDED.heap_total_kb, device_system_status.heap_total_kb)`,
-          heapFreeKb: sql`COALESCE(EXCLUDED.heap_free_kb, device_system_status.heap_free_kb)`,
-          heapMinFreeKb: sql`COALESCE(EXCLUDED.heap_min_free_kb, device_system_status.heap_min_free_kb)`,
-          updatedAt: sql`NOW()`,
-        },
-      })
+    await this.db.execute(sql`
+      INSERT INTO device_system_status (
+        module_id, chip_id, module_type, ip, mac, booted_at, rssi, 
+        flash_used_kb, flash_free_kb, flash_system_kb, 
+        heap_total_kb, heap_free_kb, heap_min_free_kb, updated_at
+      ) VALUES (
+        ${moduleId}, 
+        ${chipId}, 
+        ${data.moduleType ?? null}, 
+        ${data.ip ?? null}, 
+        ${data.mac ?? null}, 
+        ${bootedAt}, 
+        ${data.rssi ?? null}, 
+        ${data.flash?.usedKb ?? null}, 
+        ${data.flash?.freeKb ?? null}, 
+        ${data.flash?.systemKb ?? ((data.flash?.totalKb && data.flash?.usedKb && data.flash?.freeKb) ? Math.max(0, data.flash.totalKb - data.flash.usedKb - data.flash.freeKb) : null)}, 
+        ${data.memory?.heapTotalKb ?? null}, 
+        ${data.memory?.heapFreeKb ?? null}, 
+        ${data.memory?.heapMinFreeKb ?? null}, 
+        NOW()
+      )
+      ON CONFLICT (module_id, chip_id) DO UPDATE SET
+        module_type = COALESCE(EXCLUDED.module_type, device_system_status.module_type),
+        ip = COALESCE(EXCLUDED.ip, device_system_status.ip),
+        mac = COALESCE(EXCLUDED.mac, device_system_status.mac),
+        booted_at = COALESCE(EXCLUDED.booted_at, device_system_status.booted_at),
+        rssi = COALESCE(EXCLUDED.rssi, device_system_status.rssi),
+        flash_used_kb = COALESCE(EXCLUDED.flash_used_kb, device_system_status.flash_used_kb),
+        flash_free_kb = COALESCE(EXCLUDED.flash_free_kb, device_system_status.flash_free_kb),
+        flash_system_kb = COALESCE(EXCLUDED.flash_system_kb, device_system_status.flash_system_kb),
+        heap_total_kb = COALESCE(EXCLUDED.heap_total_kb, device_system_status.heap_total_kb),
+        heap_free_kb = COALESCE(EXCLUDED.heap_free_kb, device_system_status.heap_free_kb),
+        heap_min_free_kb = COALESCE(EXCLUDED.heap_min_free_kb, device_system_status.heap_min_free_kb),
+        updated_at = NOW()
+    `)
   }
 
   /**
@@ -222,19 +209,11 @@ export class MqttRepository {
     // Ensure device exists in device_system_status (required for listModules to work)
     // We do this before sensor updates to avoiding FK violations (if we add FKs later)
     // and to ensure the module appears in the list immediately.
-    await this.db
-      .insert(schema.deviceSystemStatus)
-      .values({
-        moduleId,
-        chipId,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [schema.deviceSystemStatus.moduleId, schema.deviceSystemStatus.chipId],
-        set: {
-          updatedAt: sql`NOW()`,
-        },
-      })
+    await this.db.execute(sql`
+      INSERT INTO device_system_status (module_id, chip_id, updated_at)
+      VALUES (${moduleId}, ${chipId}, NOW())
+      ON CONFLICT (module_id, chip_id) DO UPDATE SET updated_at = NOW()
+    `)
 
     const updates = Object.entries(data).map(([sensorType, sensor]) =>
       this.db
