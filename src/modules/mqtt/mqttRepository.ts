@@ -77,19 +77,11 @@ export class MqttRepository {
       })
 
       const deviceUpdates = Array.from(devices.values()).map(({ moduleId, chipId }) =>
-        this.db
-          .insert(schema.deviceSystemStatus)
-          .values({
-            moduleId,
-            chipId,
-            updatedAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: [schema.deviceSystemStatus.moduleId, schema.deviceSystemStatus.chipId],
-            set: {
-              updatedAt: sql`NOW()`,
-            },
-          })
+        this.db.execute(sql`
+          INSERT INTO device_system_status (module_id, chip_id, updated_at)
+          VALUES (${moduleId}, ${chipId}, NOW())
+          ON CONFLICT (module_id, chip_id) DO UPDATE SET updated_at = NOW()
+        `)
       )
 
       console.log(`[DB] Upserting ${deviceUpdates.length} devices in status table:`, Array.from(devices.keys()))
