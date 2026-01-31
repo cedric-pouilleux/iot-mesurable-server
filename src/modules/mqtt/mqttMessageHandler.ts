@@ -29,6 +29,16 @@ export class MqttMessageHandler {
   ) { }
 
   /**
+   * Initialize cache from DB
+   */
+  async init(mapping: Map<string, string>) {
+    mapping.forEach((chipId, moduleId) => {
+      this.chipIdCache.set(moduleId, chipId)
+    })
+    this.fastify.log.info(`[MQTT] MqttMessageHandler initialized with ${mapping.size} device mappings`)
+  }
+
+  /**
    * Parse topic structure: module_id/category/sensor_type
    */
   private parseTopic(topic: string): TopicParts | null {

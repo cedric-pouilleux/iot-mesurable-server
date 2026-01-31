@@ -324,4 +324,20 @@ export class MqttRepository {
 
     return configsByModule
   }
+  async getModuleChipIdMap(): Promise<Map<string, string>> {
+    const rows = await this.db
+      .select({
+        moduleId: schema.deviceSystemStatus.moduleId,
+        chipId: schema.deviceSystemStatus.chipId,
+      })
+      .from(schema.deviceSystemStatus)
+
+    const map = new Map<string, string>()
+    for (const row of rows) {
+      if (row.moduleId && row.chipId) {
+        map.set(row.moduleId, row.chipId)
+      }
+    }
+    return map
+  }
 }

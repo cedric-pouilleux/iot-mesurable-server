@@ -228,6 +228,14 @@ export default fp(async (fastify: FastifyInstance) => {
     }
   )
 
+  // Load initial mappings from DB to prevent "Ghost Modules"
+  try {
+    const mappings = await mqttRepo.getModuleChipIdMap()
+    await messageHandler.init(mappings)
+  } catch (err) {
+    fastify.log.error(`[MQTT] Failed to load initial mappings: ${err}`)
+  }
+
   client.on('message', async (topic, message) => {
     await messageHandler.handleMessage(topic, message)
   })
