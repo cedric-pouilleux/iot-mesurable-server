@@ -47,6 +47,7 @@ export class DeviceController {
 
         return { id, name, type, category, chipId: row.chipId, status: null }
       })
+      this.fastify.log.info(`[API] listModules found ${modules.length} modules: ${JSON.stringify(modules.map(m => m.id))}`)
       return modules
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
