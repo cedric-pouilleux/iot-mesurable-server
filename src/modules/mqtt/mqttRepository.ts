@@ -196,114 +196,129 @@ export class MqttRepository {
   /**
    * Update sensor status (batch update for multiple sensors)
    */
-  async updateSensorStatus(moduleId: string, chipId: string, data: SensorsStatusData): Promise<void> {
-    const updates = Object.entries(data).map(([sensorType, sensor]) =>
-      this.db
-        .insert(schema.sensorStatus)
-        .values({
-          moduleId,
-          chipId,
-          sensorType,
-          status: sensor.status,
-          value: sensor.value,
-          updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: [schema.sensorStatus.moduleId, schema.sensorStatus.chipId, schema.sensorStatus.sensorType],
-          set: {
-            status: sql`EXCLUDED.status`,
-            value: sql`EXCLUDED.value`,
-            updatedAt: sql`NOW()`,
-          },
-        })
-    )
+    // Ensure device exists in device_system_status (required for listModules to work)
+    // We do this before sensor updates to avoiding FK violations (if we add FKs later)
+    // and to ensure the module appears in the list immediately.
+    await this.db
+  .insert(schema.deviceSystemStatus)
+  .values({
+    moduleId,
+    chipId,
+    updatedAt: new Date(),
+  })
+  .onConflictDoUpdate({
+    target: [schema.deviceSystemStatus.moduleId, schema.deviceSystemStatus.chipId],
+    set: {
+      updatedAt: sql`NOW()`,
+    },
+  })
 
-    await Promise.all(updates)
-  }
+const updates = Object.entries(data).map(([sensorType, sensor]) =>
+  this.db
+    .insert(schema.sensorStatus)
+    .values({
+      moduleId,
+      chipId,
+      sensorType,
+      status: sensor.status,
+      value: sensor.value,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [schema.sensorStatus.moduleId, schema.sensorStatus.chipId, schema.sensorStatus.sensorType],
+      set: {
+        status: sql`EXCLUDED.status`,
+        value: sql`EXCLUDED.value`,
+        updatedAt: sql`NOW()`,
+      },
+    })
+)
+
+await Promise.all(updates)
 
   /**
    * Update sensor configuration (batch update for multiple sensors)
    */
-  async updateSensorConfig(moduleId: string, chipId: string, data: SensorsConfigData): Promise<void> {
-    const updates = Object.entries(data).map(([sensorType, sensor]) =>
-      this.db
-        .insert(schema.sensorConfig)
-        .values({
-          moduleId,
-          chipId,
-          sensorType,
-          intervalSeconds: sensor.interval ?? null,
-          model: sensor.model ?? null,
-          enabled: sensor.enabled !== undefined ? sensor.enabled : true,
-          updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: [schema.sensorConfig.moduleId, schema.sensorConfig.chipId, schema.sensorConfig.sensorType],
-          set: {
-            intervalSeconds: sql`COALESCE(EXCLUDED.interval_seconds, sensor_config.interval_seconds)`,
-            model: sql`COALESCE(EXCLUDED.model, sensor_config.model)`,
-            enabled: sql`COALESCE(EXCLUDED.enabled, sensor_config.enabled)`,
-            updatedAt: sql`NOW()`,
-          },
-        })
-    )
+  async updateSensorConfig(moduleId: string, chipId: string, data: SensorsConfigData): Promise < void> {
+  const updates = Object.entries(data).map(([sensorType, sensor]) =>
+    this.db
+      .insert(schema.sensorConfig)
+      .values({
+        moduleId,
+        chipId,
+        sensorType,
+        intervalSeconds: sensor.interval ?? null,
+        model: sensor.model ?? null,
+        enabled: sensor.enabled !== undefined ? sensor.enabled : true,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [schema.sensorConfig.moduleId, schema.sensorConfig.chipId, schema.sensorConfig.sensorType],
+        set: {
+          intervalSeconds: sql`COALESCE(EXCLUDED.interval_seconds, sensor_config.interval_seconds)`,
+          model: sql`COALESCE(EXCLUDED.model, sensor_config.model)`,
+          enabled: sql`COALESCE(EXCLUDED.enabled, sensor_config.enabled)`,
+          updatedAt: sql`NOW()`,
+        },
+      })
+  )
 
     await Promise.all(updates)
-  }
+}
 
   /**
    * Update hardware information
    */
-  async updateHardware(moduleId: string, chipId: string, data: HardwareData): Promise<void> {
-    await this.db
-      .insert(schema.deviceHardware)
-      .values({
-        moduleId,
-        chipId,
-        chipModel: data.chip?.model ?? null,
-        chipRev: data.chip?.rev ?? null,
-        cpuFreqMhz: data.chip?.cpuFreqMhz ?? null,
-        flashKb: data.chip?.flashKb ?? null,
-        cores: data.chip?.cores ?? null,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [schema.deviceHardware.moduleId, schema.deviceHardware.chipId],
-        set: {
-          chipModel: sql`EXCLUDED.chip_model`,
-          chipRev: sql`EXCLUDED.chip_rev`,
-          cpuFreqMhz: sql`EXCLUDED.cpu_freq_mhz`,
-          flashKb: sql`EXCLUDED.flash_kb`,
-          cores: sql`EXCLUDED.cores`,
-          updatedAt: sql`NOW()`,
-        },
-      })
-  }
+  async updateHardware(moduleId: string, chipId: string, data: HardwareData): Promise < void> {
+  await this.db
+    .insert(schema.deviceHardware)
+    .values({
+      moduleId,
+      chipId,
+      chipModel: data.chip?.model ?? null,
+      chipRev: data.chip?.rev ?? null,
+      cpuFreqMhz: data.chip?.cpuFreqMhz ?? null,
+      flashKb: data.chip?.flashKb ?? null,
+      cores: data.chip?.cores ?? null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [schema.deviceHardware.moduleId, schema.deviceHardware.chipId],
+      set: {
+        chipModel: sql`EXCLUDED.chip_model`,
+        chipRev: sql`EXCLUDED.chip_rev`,
+        cpuFreqMhz: sql`EXCLUDED.cpu_freq_mhz`,
+        flashKb: sql`EXCLUDED.flash_kb`,
+        cores: sql`EXCLUDED.cores`,
+        updatedAt: sql`NOW()`,
+      },
+    })
+}
 
   /**
    * Get all enabled sensor configurations grouped by module
    */
-  async getEnabledSensorConfigs(): Promise<Record<string, ModuleConfig>> {
-    const result = await this.db
-      .select({
-        moduleId: schema.sensorConfig.moduleId,
-        sensorType: schema.sensorConfig.sensorType,
-        intervalSeconds: schema.sensorConfig.intervalSeconds,
-      })
-      .from(schema.sensorConfig)
-      .where(eq(schema.sensorConfig.enabled, true))
+  async getEnabledSensorConfigs(): Promise < Record < string, ModuleConfig >> {
+  const result = await this.db
+    .select({
+      moduleId: schema.sensorConfig.moduleId,
+      sensorType: schema.sensorConfig.sensorType,
+      intervalSeconds: schema.sensorConfig.intervalSeconds,
+    })
+    .from(schema.sensorConfig)
+    .where(eq(schema.sensorConfig.enabled, true))
 
     // Group by module
-    const configsByModule: Record<string, ModuleConfig> = {}
-    for (const row of result) {
-      if (!configsByModule[row.moduleId]) {
-        configsByModule[row.moduleId] = { sensors: {} }
-      }
-      configsByModule[row.moduleId].sensors![row.sensorType] = {
-        interval: row.intervalSeconds ?? undefined,
-      }
-    }
+    const configsByModule: Record<string, ModuleConfig> = { }
+for (const row of result) {
+  if (!configsByModule[row.moduleId]) {
+    configsByModule[row.moduleId] = { sensors: {} }
+  }
+  configsByModule[row.moduleId].sensors![row.sensorType] = {
+    interval: row.intervalSeconds ?? undefined,
+  }
+}
 
-    return configsByModule
+return configsByModule
   }
 }
