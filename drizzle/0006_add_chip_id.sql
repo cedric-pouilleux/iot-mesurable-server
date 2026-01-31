@@ -8,9 +8,10 @@ ALTER TABLE "device_hardware" ADD COLUMN "chip_id" text;
 ALTER TABLE "sensor_status" ADD COLUMN "chip_id" text;
 ALTER TABLE "sensor_config" ADD COLUMN "chip_id" text;
 ALTER TABLE "measurements" ADD COLUMN "chip_id" text;
+ALTER TABLE "measurements" ADD COLUMN "hardware_id" text;
 ALTER TABLE "measurements_hourly" ADD COLUMN "chip_id" text;
 
--- Step 2: Populate chip_id for existing data
+-- Step 2: Populate chip_id and hardware_id for existing data
 -- For device_system_status and related tables, use MAC address as chipId placeholder
 UPDATE "device_system_status" 
 SET "chip_id" = COALESCE(REPLACE("mac", ':', ''), 'UNKNOWN_' || "module_id")
@@ -40,18 +41,24 @@ SET "chip_id" = (SELECT COALESCE(REPLACE(d."mac", ':', ''), 'UNKNOWN_' || d."mod
                  WHERE d."module_id" = "measurements"."module_id")
 WHERE "chip_id" IS NULL;
 
+-- Backfill hardware_id with sensor_type (best guess for legacy data)
+UPDATE "measurements"
+SET "hardware_id" = "sensor_type"
+WHERE "hardware_id" IS NULL;
+
 UPDATE "measurements_hourly"
 SET "chip_id" = (SELECT COALESCE(REPLACE(d."mac", ':', ''), 'UNKNOWN_' || d."module_id")
                  FROM "device_system_status" d 
                  WHERE d."module_id" = "measurements_hourly"."module_id")
 WHERE "chip_id" IS NULL;
 
--- Step 3: Make chip_id NOT NULL
+-- Step 3: Make chip_id and hardware_id NOT NULL
 ALTER TABLE "device_system_status" ALTER COLUMN "chip_id" SET NOT NULL;
 ALTER TABLE "device_hardware" ALTER COLUMN "chip_id" SET NOT NULL;
 ALTER TABLE "sensor_status" ALTER COLUMN "chip_id" SET NOT NULL;
 ALTER TABLE "sensor_config" ALTER COLUMN "chip_id" SET NOT NULL;
 ALTER TABLE "measurements" ALTER COLUMN "chip_id" SET NOT NULL;
+ALTER TABLE "measurements" ALTER COLUMN "hardware_id" SET NOT NULL;
 ALTER TABLE "measurements_hourly" ALTER COLUMN "chip_id" SET NOT NULL;
 
 -- Step 4: Drop old primary keys
@@ -59,7 +66,7 @@ ALTER TABLE "device_system_status" DROP CONSTRAINT IF EXISTS "device_system_stat
 ALTER TABLE "device_hardware" DROP CONSTRAINT IF EXISTS "device_hardware_pkey";
 ALTER TABLE "sensor_status" DROP CONSTRAINT IF EXISTS "sensor_status_module_id_sensor_type_pk";
 ALTER TABLE "sensor_config" DROP CONSTRAINT IF EXISTS "sensor_config_module_id_sensor_type_pk";
-ALTER TABLE "measurements" DROP CONSTRAINT IF EXISTS "measurements_time_module_id_sensor_type_hardware_id_pk";
+ALTER TABLE "measurements" DROP CONSTRAINT IF EXISTS "measurements_time_module_id_sensor_type_pk";
 
 -- Step 5: Create new composite primary keys
 ALTER TABLE "device_system_status" 
