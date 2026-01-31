@@ -11,35 +11,36 @@ const client = new Client({
     database: process.env.DB_NAME || 'iot_data',
 });
 
-async function checkAllModules() {
+async function checkLast5Minutes() {
     try {
         await client.connect();
 
-        console.log('=== Last 10 minutes - All modules ===\n');
+        console.log('=== Measurements in last 5 minutes ===\n');
 
         const res = await client.query(`
       SELECT 
+        time,
         module_id,
         chip_id,
         hardware_id,
         sensor_type,
-        COUNT(*) as count,
-        MAX(time) as last_time,
-        EXTRACT(EPOCH FROM (NOW() - MAX(time))) as seconds_ago
+        value,
+        EXTRACT(EPOCH FROM (NOW() - time)) as seconds_ago
       FROM measurements 
-      WHERE time >= NOW() - INTERVAL '10 minutes'
-      GROUP BY module_id, chip_id, hardware_id, sensor_type
-      ORDER BY last_time DESC
+      WHERE time >= NOW() - INTERVAL '5 minutes'
+      ORDER BY time DESC
+      LIMIT 50
     `);
 
         if (res.rows.length === 0) {
-            console.log('❌ NO MEASUREMENTS IN LAST 10 MINUTES!');
+            console.log('❌ NO MEASUREMENTS IN LAST 5 MINUTES!');
+            console.log('This means data is NOT being persisted to database.');
         } else {
-            console.log(`Found ${res.rows.length} sensor types:\n`);
+            console.log(`Found ${res.rows.length} measurements:\n`);
             res.rows.forEach((row, i) => {
-                console.log(`${i + 1}. ${row.module_id}/${row.hardware_id}:${row.sensor_type}`);
-                console.log(`   Count: ${row.count}, Last: ${Math.round(row.seconds_ago)}s ago`);
-                console.log(`   ChipId: ${row.chip_id}`);
+                console.log(`${i + 1}. ${row.module_id}/${row.hardware_id}:${row.sensor_type} = ${row.value}`);
+                console.log(`   time: ${row.time} (${Math.round(row.seconds_ago)}s ago)`);
+                console.log(`   chipId: ${row.chip_id}`);
             });
         }
 
@@ -50,4 +51,4 @@ async function checkAllModules() {
     }
 }
 
-checkAllModules();
+checkLast5Minutes();

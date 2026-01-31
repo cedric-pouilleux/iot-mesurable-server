@@ -33,6 +33,8 @@ export default fp(async (fastify: FastifyInstance) => {
   const FLUSH_INTERVAL = 5000
 
   async function flushMeasurements() {
+    fastify.log.info(`[DEBUG FLUSH] Called with ${measurementBuffer.length} measurements in buffer`)
+
     if (measurementBuffer.length === 0) {
       return
     }
@@ -40,18 +42,22 @@ export default fp(async (fastify: FastifyInstance) => {
     const allMeasurements = [...measurementBuffer]
     measurementBuffer.length = 0
 
-    // Filter out measurements with UNKNOWN chipId to prevent ghost module entries
-    // These come from messages received before system/config (which provides chipId)
-    const batch = allMeasurements.filter(m => m.chipId !== 'UNKNOWN')
-    const skipped = allMeasurements.length - batch.length
+    // Use moduleId as chipId fallback for UNKNOWN to prevent data loss
+    // This happens when measurements arrive before system/config message
+    const batch = allMeasurements.map(m => {
+      const originalChipId = m.chipId
+      const finalChipId = m.chipId !== 'UNKNOWN' ? m.chipId : m.moduleId
 
-    if (skipped > 0) {
-      fastify.log.debug({
-        msg: `Skipped ${skipped} measurements with UNKNOWN chipId`,
-        category: 'MQTT',
-        source: 'SYSTEM'
-      })
-    }
+      // Debug: log if fallback is used
+      if (originalChipId === 'UNKNOWN') {
+        fastify.log.info(`[DEBUG] ChipId fallback: ${m.moduleId}/${m.hardwareId}:${m.sensorType} - UNKNOWN -> ${finalChipId}`)
+      }
+
+      return {
+        ...m,
+        chipId: finalChipId
+      }
+    })
 
     if (batch.length === 0) {
       return
@@ -125,8 +131,9 @@ export default fp(async (fastify: FastifyInstance) => {
         })
       }
 
-      // Remettre les mesures dans le buffer en cas d'erreur (pour réessayer plus tard)
-      measurementBuffer.unshift(...batch)
+      // NOTE: We intentionally do NOT retry failed batches.
+      // Retrying causes infinite loops when there's a persistent DB issue.
+      // The measurements are lost, but the system remains stable.
     }
   }
 
@@ -253,7 +260,7 @@ export default fp(async (fastify: FastifyInstance) => {
   fastify.addHook('onClose', async (instance) => {
     clearInterval(flushMeasurementsInterval)
     clearInterval(flushStatusUpdatesInterval)
-    
+
     try {
       // Attempt to flush remaining data
       // Note: This might fail if the DB connection is already closed by dbPlugin

@@ -259,13 +259,16 @@ export class MqttMessageHandler {
   ): boolean {
     const { moduleId, category, parts } = parsed
 
-
+    // Debug: log ALL sensor measurement attempts
+    this.fastify.log.info(`[DEBUG MEASUREMENT] Topic: ${topic}, parts: ${parts.length}, category: ${category}`)
 
     // Format: module_id/hardware_id/measurement (NEW - Hardware-aware format)
     // Example: croissance/dht22/temperature, croissance/bmp280/pressure
     if (parts.length === 3 && category !== 'sensors' && !topic.includes('/status') && !topic.includes('/config')) {
       const hardwareId = parts[1]
       const measurementType = parts[2]
+
+      this.fastify.log.info(`[DEBUG] Matched sensor format: ${moduleId}/${hardwareId}/${measurementType}`)
 
       // Canonical sensor key mappings - all hardware uses the same canonical keys
       // The hardware_id is stored separately to track the source
@@ -310,6 +313,9 @@ export class MqttMessageHandler {
         'mhz14a': {
           'co2': 'co2'
         },
+        'mhz19e': {
+          'co2': 'co2'
+        },
         'mq7': {
           'co': 'co'
         }
@@ -321,13 +327,17 @@ export class MqttMessageHandler {
 
       const value = parseFloat(payload)
       if (isNaN(value)) {
+        this.fastify.log.warn(`[DEBUG] Rejected NaN value: ${topic}`)
         return false
       }
 
       // Validate value range
       if (!this.isValueValid(moduleId, canonicalSensorType, value)) {
+        this.fastify.log.warn(`[DEBUG] Rejected out-of-range: ${topic} = ${value}`)
         return true // Message was handled (rejected), don't try other handlers
       }
+
+      this.fastify.log.info(`[DEBUG] Adding to buffer: ${moduleId}/${hardwareId}:${canonicalSensorType} = ${value}`)
 
       this.measurementBuffer.push({
         time: now,
