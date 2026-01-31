@@ -448,7 +448,6 @@ export class DeviceController {
         status.zoneName = statusRow.zoneName
       }
 
-      console.log(`[DEBUG] Building status. statusRow keys: ${Object.keys(statusRow)}`)
       if (statusRow.moduleType) {
         status.moduleType = statusRow.moduleType
       }

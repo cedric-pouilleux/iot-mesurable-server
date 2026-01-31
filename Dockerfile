@@ -31,14 +31,19 @@ COPY --from=builder /app/dist ./dist
 # Copie des fichiers de migration Drizzle
 COPY --from=builder /app/drizzle ./drizzle
 
+# Copie et configuration du script d'entrypoint
+COPY --from=builder /app/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh && chown node:node ./docker-entrypoint.sh
+
 # Copie du fichier retention.sql (nécessaire pour le plugin log-retention)
 # Le dossier dist/db existe déjà après la compilation TypeScript, mais on s'assure qu'il existe
 RUN mkdir -p ./dist/db && chown -R node:node ./dist/db
 COPY --from=builder /app/src/db/retention.sql ./dist/db/retention.sql
 
-# Copie et configuration du script d'entrypoint
-COPY --from=builder /app/docker-entrypoint.sh ./docker-entrypoint.sh
-RUN chmod +x ./docker-entrypoint.sh && chown node:node ./docker-entrypoint.sh
+# Copie des fichiers manifest.json (fichiers statiques non compilés par TypeScript)
+# Ces fichiers définissent les capteurs et configurations de chaque type de module
+COPY --from=builder /app/src/modules/air-quality/manifest.json ./dist/modules/air-quality/manifest.json
+COPY --from=builder /app/src/modules/air-quality-bench/manifest.json ./dist/modules/air-quality-bench/manifest.json
 
 # Sécurité: Utilisation de l'utilisateur par défaut 'node'
 USER node
