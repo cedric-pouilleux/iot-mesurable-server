@@ -143,15 +143,18 @@ export default fp(async (fastify: FastifyInstance) => {
     const allUpdates = [...statusUpdateBuffer]
     statusUpdateBuffer.length = 0
 
-    // Filter out updates with UNKNOWN chipId, except system_config which carries the chipId
-    // system_config is the message that provides chipId, so we must allow it through
-    const batch = allUpdates.filter(u => {
-      // Allow system_config even with UNKNOWN chipId if it contains chipId in payload
-      if (u.type === 'system_config' && (u.data as any)?.chipId) {
-        return true
+    // Map updates to ensure valid chipId
+    const batch = allUpdates.map(u => {
+      // If chipId is UNKNOWN, fallback to moduleId (1:1 mapping assumption for legacy/simple modules)
+      if (u.chipId === 'UNKNOWN') {
+        // If the message itself contains chipId (system_config), use it
+        if (u.type === 'system_config' && (u.data as any)?.chipId) {
+          return { ...u, chipId: (u.data as any).chipId }
+        }
+        // Otherwise fallback to moduleId
+        return { ...u, chipId: u.moduleId }
       }
-      // Filter out other messages with UNKNOWN chipId
-      return u.chipId !== 'UNKNOWN'
+      return u
     })
 
     const skipped = allUpdates.length - batch.length
