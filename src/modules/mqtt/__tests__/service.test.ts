@@ -1,17 +1,15 @@
 /**
- * Unit tests for MQTT Service
+ * Unit tests for MQTT Service (mesurable/{chipId}/... namespace)
  */
 import { describe, it, expect } from 'vitest'
 import {
     parseTopic,
     matchesTopic,
     isValueValid,
-    getCanonicalSensorType,
     isMeasurementTopic,
     parseMeasurement,
     safeParseJson,
     identifyMessageCategory,
-    CANONICAL_MAPPINGS,
     type TopicParts,
     type ValidationRange,
 } from '../service'
@@ -22,59 +20,75 @@ import {
 
 describe('parseTopic', () => {
     describe('valid topics', () => {
-        it('should parse a simple two-part topic', () => {
-            const result = parseTopic('croissance/system')
+        it('should parse a data measurement topic', () => {
+            const result = parseTopic('mesurable/ABCDEF123456/data/scd41/co2')
 
             expect(result).toEqual({
-                moduleId: 'croissance',
-                category: 'system',
-                sensorType: null,
-                parts: ['croissance', 'system'],
+                chipId: 'ABCDEF123456',
+                subtopic: 'data',
+                rest: ['scd41', 'co2'],
+                parts: ['mesurable', 'ABCDEF123456', 'data', 'scd41', 'co2'],
             })
         })
 
-        it('should parse a three-part measurement topic', () => {
-            const result = parseTopic('croissance/dht22/temperature')
+        it('should parse an announce topic', () => {
+            const result = parseTopic('mesurable/ABCDEF123456/announce')
 
             expect(result).toEqual({
-                moduleId: 'croissance',
-                category: 'dht22',
-                sensorType: 'temperature',
-                parts: ['croissance', 'dht22', 'temperature'],
+                chipId: 'ABCDEF123456',
+                subtopic: 'announce',
+                rest: [],
+                parts: ['mesurable', 'ABCDEF123456', 'announce'],
             })
         })
 
-        it('should parse topics with many parts', () => {
-            const result = parseTopic('module/sensors/status/extra')
+        it('should parse a status topic', () => {
+            const result = parseTopic('mesurable/ABCDEF123456/status')
 
             expect(result).toEqual({
-                moduleId: 'module',
-                category: 'sensors',
-                sensorType: 'status',
-                parts: ['module', 'sensors', 'status', 'extra'],
+                chipId: 'ABCDEF123456',
+                subtopic: 'status',
+                rest: [],
+                parts: ['mesurable', 'ABCDEF123456', 'status'],
+            })
+        })
+
+        it('should parse a system topic', () => {
+            const result = parseTopic('mesurable/ABCDEF123456/system')
+
+            expect(result).toEqual({
+                chipId: 'ABCDEF123456',
+                subtopic: 'system',
+                rest: [],
+                parts: ['mesurable', 'ABCDEF123456', 'system'],
+            })
+        })
+
+        it('should parse a log topic', () => {
+            const result = parseTopic('mesurable/ABCDEF123456/log')
+
+            expect(result).toEqual({
+                chipId: 'ABCDEF123456',
+                subtopic: 'log',
+                rest: [],
+                parts: ['mesurable', 'ABCDEF123456', 'log'],
             })
         })
     })
 
     describe('skipped topics', () => {
-        it('should return null for too short topics (only one part)', () => {
-            expect(parseTopic('single')).toBeNull()
+        it('should return null for non-mesurable topics', () => {
+            expect(parseTopic('home/something')).toBeNull()
+            expect(parseTopic('air-quality/scd41/co2')).toBeNull()
+        })
+
+        it('should return null for too short mesurable topics', () => {
+            expect(parseTopic('mesurable/chipId')).toBeNull()
+            expect(parseTopic('mesurable')).toBeNull()
         })
 
         it('should return null for empty string', () => {
             expect(parseTopic('')).toBeNull()
-        })
-
-        it('should skip topics starting with home/', () => {
-            expect(parseTopic('home/something/else')).toBeNull()
-        })
-
-        it('should skip topics starting with dev/', () => {
-            expect(parseTopic('dev/test/value')).toBeNull()
-        })
-
-        it('should skip test-module topics', () => {
-            expect(parseTopic('test-module/anything')).toBeNull()
         })
     })
 })
@@ -85,13 +99,12 @@ describe('parseTopic', () => {
 
 describe('matchesTopic', () => {
     it('should match topic with suffix', () => {
-        expect(matchesTopic('croissance/system', '/system')).toBe(true)
-        expect(matchesTopic('croissance/sensors/status', '/sensors/status')).toBe(true)
+        expect(matchesTopic('mesurable/ABC/system', '/system')).toBe(true)
+        expect(matchesTopic('mesurable/ABC/announce', '/announce')).toBe(true)
     })
 
     it('should not match topic without suffix', () => {
-        expect(matchesTopic('croissance/system', '/config')).toBe(false)
-        expect(matchesTopic('something/else', '/sensors/status')).toBe(false)
+        expect(matchesTopic('mesurable/ABC/system', '/config')).toBe(false)
     })
 })
 
@@ -151,43 +164,6 @@ describe('isValueValid', () => {
             const result = isValueValid('humidity', 150, getRange)
             expect(result.valid).toBe(false)
         })
-
-        it('should reject negative humidity', () => {
-            const result = isValueValid('humidity', -5, getRange)
-            expect(result.valid).toBe(false)
-        })
-    })
-})
-
-// ============================================================================
-// getCanonicalSensorType Tests
-// ============================================================================
-
-describe('getCanonicalSensorType', () => {
-    it('should map known hardware sensors to canonical types', () => {
-        expect(getCanonicalSensorType('dht22', 'temperature')).toBe('temperature')
-        expect(getCanonicalSensorType('dht22', 'humidity')).toBe('humidity')
-        expect(getCanonicalSensorType('bmp280', 'pressure')).toBe('pressure')
-        expect(getCanonicalSensorType('sht40', 'temperature')).toBe('temperature')
-        expect(getCanonicalSensorType('sht31', 'temperature')).toBe('temperature')
-        expect(getCanonicalSensorType('sht31', 'humidity')).toBe('humidity')
-        expect(getCanonicalSensorType('sgp30', 'tvoc')).toBe('tvoc')
-        expect(getCanonicalSensorType('sgp40', 'voc')).toBe('voc')
-    })
-
-    it('should passthrough unknown hardware', () => {
-        expect(getCanonicalSensorType('unknown_hw', 'custom_reading')).toBe('custom_reading')
-    })
-
-    it('should passthrough unknown measurement on known hardware', () => {
-        expect(getCanonicalSensorType('dht22', 'unknown')).toBe('unknown')
-    })
-
-    it('should have all expected hardware in CANONICAL_MAPPINGS', () => {
-        const expectedHardware = ['bmp280', 'sht40', 'sht31', 'dht22', 'sgp30', 'sgp40', 'sps30', 'mhz14a', 'mq7']
-        for (const hw of expectedHardware) {
-            expect(CANONICAL_MAPPINGS).toHaveProperty(hw)
-        }
     })
 })
 
@@ -196,59 +172,34 @@ describe('getCanonicalSensorType', () => {
 // ============================================================================
 
 describe('isMeasurementTopic', () => {
-    it('should identify measurement topics', () => {
+    it('should identify data measurement topics', () => {
         const parsed: TopicParts = {
-            moduleId: 'croissance',
-            category: 'dht22',
-            sensorType: 'temperature',
-            parts: ['croissance', 'dht22', 'temperature'],
+            chipId: 'ABCDEF',
+            subtopic: 'data',
+            rest: ['scd41', 'co2'],
+            parts: ['mesurable', 'ABCDEF', 'data', 'scd41', 'co2'],
         }
-
-        expect(isMeasurementTopic(parsed, 'croissance/dht22/temperature')).toBe(true)
+        expect(isMeasurementTopic(parsed)).toBe(true)
     })
 
-    it('should reject sensors category', () => {
+    it('should reject data topics with wrong rest length', () => {
         const parsed: TopicParts = {
-            moduleId: 'croissance',
-            category: 'sensors',
-            sensorType: 'status',
-            parts: ['croissance', 'sensors', 'status'],
+            chipId: 'ABCDEF',
+            subtopic: 'data',
+            rest: ['scd41'],
+            parts: ['mesurable', 'ABCDEF', 'data', 'scd41'],
         }
-
-        expect(isMeasurementTopic(parsed, 'croissance/sensors/status')).toBe(false)
+        expect(isMeasurementTopic(parsed)).toBe(false)
     })
 
-    it('should reject status topics', () => {
+    it('should reject non-data subtopics', () => {
         const parsed: TopicParts = {
-            moduleId: 'croissance',
-            category: 'something',
-            sensorType: 'status',
-            parts: ['croissance', 'something', 'status'],
+            chipId: 'ABCDEF',
+            subtopic: 'status',
+            rest: [],
+            parts: ['mesurable', 'ABCDEF', 'status'],
         }
-
-        expect(isMeasurementTopic(parsed, 'croissance/something/status')).toBe(false)
-    })
-
-    it('should reject config topics', () => {
-        const parsed: TopicParts = {
-            moduleId: 'croissance',
-            category: 'hardware',
-            sensorType: 'config',
-            parts: ['croissance', 'hardware', 'config'],
-        }
-
-        expect(isMeasurementTopic(parsed, 'croissance/hardware/config')).toBe(false)
-    })
-
-    it('should reject two-part topics', () => {
-        const parsed: TopicParts = {
-            moduleId: 'croissance',
-            category: 'system',
-            sensorType: null,
-            parts: ['croissance', 'system'],
-        }
-
-        expect(isMeasurementTopic(parsed, 'croissance/system')).toBe(false)
+        expect(isMeasurementTopic(parsed)).toBe(false)
     })
 })
 
@@ -259,46 +210,46 @@ describe('isMeasurementTopic', () => {
 describe('parseMeasurement', () => {
     it('should parse valid measurement', () => {
         const parsed: TopicParts = {
-            moduleId: 'croissance',
-            category: 'dht22',
-            sensorType: 'temperature',
-            parts: ['croissance', 'dht22', 'temperature'],
+            chipId: 'ABCDEF',
+            subtopic: 'data',
+            rest: ['scd41', 'co2'],
+            parts: ['mesurable', 'ABCDEF', 'data', 'scd41', 'co2'],
         }
 
-        const result = parseMeasurement(parsed, '22.5')
+        const result = parseMeasurement(parsed, '450')
 
         expect(result).toEqual({
-            moduleId: 'croissance',
-            sensorType: 'temperature',
-            hardwareId: 'dht22',
-            value: 22.5,
+            chipId: 'ABCDEF',
+            sensorType: 'co2',
+            hardwareId: 'scd41',
+            value: 450,
         })
     })
 
     it('should parse negative values', () => {
         const parsed: TopicParts = {
-            moduleId: 'outside',
-            category: 'dht22',
-            sensorType: 'temperature',
-            parts: ['outside', 'dht22', 'temperature'],
+            chipId: 'ABCDEF',
+            subtopic: 'data',
+            rest: ['scd41', 'temperature'],
+            parts: ['mesurable', 'ABCDEF', 'data', 'scd41', 'temperature'],
         }
 
         const result = parseMeasurement(parsed, '-10.5')
 
         expect(result).toEqual({
-            moduleId: 'outside',
+            chipId: 'ABCDEF',
             sensorType: 'temperature',
-            hardwareId: 'dht22',
+            hardwareId: 'scd41',
             value: -10.5,
         })
     })
 
     it('should return null for non-numeric payload', () => {
         const parsed: TopicParts = {
-            moduleId: 'croissance',
-            category: 'dht22',
-            sensorType: 'temperature',
-            parts: ['croissance', 'dht22', 'temperature'],
+            chipId: 'ABCDEF',
+            subtopic: 'data',
+            rest: ['scd41', 'co2'],
+            parts: ['mesurable', 'ABCDEF', 'data', 'scd41', 'co2'],
         }
 
         expect(parseMeasurement(parsed, 'invalid')).toBeNull()
@@ -306,28 +257,29 @@ describe('parseMeasurement', () => {
         expect(parseMeasurement(parsed, 'NaN')).toBeNull()
     })
 
-    it('should return null for wrong number of parts', () => {
+    it('should return null for non-data topics', () => {
         const parsed: TopicParts = {
-            moduleId: 'croissance',
-            category: 'system',
-            sensorType: null,
-            parts: ['croissance', 'system'],
+            chipId: 'ABCDEF',
+            subtopic: 'status',
+            rest: [],
+            parts: ['mesurable', 'ABCDEF', 'status'],
         }
 
         expect(parseMeasurement(parsed, '22.5')).toBeNull()
     })
 
-    it('should map hardware sensor to canonical type', () => {
+    it('should use sensorType directly from topic (no canonical mapping)', () => {
         const parsed: TopicParts = {
-            moduleId: 'room',
-            category: 'bmp280',
-            sensorType: 'pressure',
-            parts: ['room', 'bmp280', 'pressure'],
+            chipId: 'ABCDEF',
+            subtopic: 'data',
+            rest: ['bmp280', 'pressure'],
+            parts: ['mesurable', 'ABCDEF', 'data', 'bmp280', 'pressure'],
         }
 
         const result = parseMeasurement(parsed, '1013.25')
 
         expect(result?.sensorType).toBe('pressure')
+        expect(result?.hardwareId).toBe('bmp280')
     })
 })
 
@@ -358,59 +310,46 @@ describe('safeParseJson', () => {
 // ============================================================================
 
 describe('identifyMessageCategory', () => {
-    const makeParsed = (parts: string[]): TopicParts => ({
-        moduleId: parts[0],
-        category: parts[1] ?? null,
-        sensorType: parts[2] ?? null,
-        parts,
+    const makeParsed = (chipId: string, subtopic: string, rest: string[] = []): TopicParts => ({
+        chipId,
+        subtopic,
+        rest,
+        parts: ['mesurable', chipId, subtopic, ...rest],
+    })
+
+    it('should identify announce messages', () => {
+        expect(identifyMessageCategory(makeParsed('ABC', 'announce'))).toBe('announce')
+    })
+
+    it('should identify data messages', () => {
+        expect(identifyMessageCategory(makeParsed('ABC', 'data', ['scd41', 'co2']))).toBe('data')
+    })
+
+    it('should identify status messages', () => {
+        expect(identifyMessageCategory(makeParsed('ABC', 'status'))).toBe('status')
+    })
+
+    it('should identify config messages', () => {
+        expect(identifyMessageCategory(makeParsed('ABC', 'config'))).toBe('config')
     })
 
     it('should identify system messages', () => {
-        expect(identifyMessageCategory('croissance/system', makeParsed(['croissance', 'system']))).toBe(
-            'system'
-        )
+        expect(identifyMessageCategory(makeParsed('ABC', 'system'))).toBe('system')
     })
 
-    it('should identify system/config messages', () => {
-        expect(
-            identifyMessageCategory('croissance/system/config', makeParsed(['croissance', 'system', 'config']))
-        ).toBe('system_config')
+    it('should identify hardware messages', () => {
+        expect(identifyMessageCategory(makeParsed('ABC', 'hardware'))).toBe('hardware')
     })
 
-    it('should identify sensors/status messages', () => {
-        expect(
-            identifyMessageCategory('croissance/sensors/status', makeParsed(['croissance', 'sensors', 'status']))
-        ).toBe('sensors_status')
+    it('should identify log messages', () => {
+        expect(identifyMessageCategory(makeParsed('ABC', 'log'))).toBe('log')
     })
 
-    it('should identify sensors/config messages', () => {
-        expect(
-            identifyMessageCategory('croissance/sensors/config', makeParsed(['croissance', 'sensors', 'config']))
-        ).toBe('sensors_config')
+    it('should return unknown for unrecognized subtopics', () => {
+        expect(identifyMessageCategory(makeParsed('ABC', 'whatever'))).toBe('unknown')
     })
 
-    it('should identify hardware/config messages', () => {
-        expect(
-            identifyMessageCategory(
-                'croissance/hardware/config',
-                makeParsed(['croissance', 'hardware', 'config'])
-            )
-        ).toBe('hardware_config')
-    })
-
-    it('should identify logs messages', () => {
-        expect(
-            identifyMessageCategory('croissance/logs', makeParsed(['croissance', 'logs']))
-        ).toBe('logs')
-    })
-
-    it('should identify measurement messages', () => {
-        const parsed = makeParsed(['croissance', 'dht22', 'temperature'])
-        expect(identifyMessageCategory('croissance/dht22/temperature', parsed)).toBe('measurement')
-    })
-
-    it('should return unknown for unrecognized topics', () => {
-        const parsed = makeParsed(['croissance', 'unknown'])
-        expect(identifyMessageCategory('croissance/unknown', parsed)).toBe('unknown')
+    it('should return unknown for data topics with wrong rest length', () => {
+        expect(identifyMessageCategory(makeParsed('ABC', 'data', ['only_one']))).toBe('unknown')
     })
 })

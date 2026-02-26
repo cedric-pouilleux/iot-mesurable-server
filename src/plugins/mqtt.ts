@@ -191,8 +191,8 @@ export default fp(async (fastify: FastifyInstance) => {
   }, FLUSH_INTERVAL / 2)
 
   client.on('connect', () => {
-    const subscribedTopics = ['#'] // We subscribe to all topics
-    client.subscribe('#', err => {
+    const subscribedTopics = ['mesurable/#']
+    client.subscribe('mesurable/#', err => {
       if (err) {
         fastify.log.error({ msg: '[MQTT] Subscription failed', error: err })
       } else {
@@ -200,7 +200,6 @@ export default fp(async (fastify: FastifyInstance) => {
           msg: '✓ [MQTT] Connected to broker and subscribed',
           broker: config.mqtt.broker,
           topics: subscribedTopics,
-          wildcardSubscription: true,
         })
       }
     })
@@ -228,14 +227,6 @@ export default fp(async (fastify: FastifyInstance) => {
     }
   )
 
-  // Load initial mappings from DB to prevent "Ghost Modules"
-  try {
-    const mappings = await mqttRepo.getModuleChipIdMap()
-    await messageHandler.init(mappings)
-  } catch (err) {
-    fastify.log.error(`[MQTT] Failed to load initial mappings: ${err}`)
-  }
-
   client.on('message', async (topic, message) => {
     await messageHandler.handleMessage(topic, message)
   })
@@ -243,7 +234,8 @@ export default fp(async (fastify: FastifyInstance) => {
   fastify.decorate('mqtt', client)
   fastify.decorate('publishConfig', (moduleId: string, config: ModuleConfig) => {
     if (!client) return false
-    const topic = `${moduleId}/sensors/config`
+    // In the new namespace, moduleId IS the chipId
+    const topic = `mesurable/${moduleId}/config`
     const payload = JSON.stringify(config)
     fastify.log.info({
       msg: `[MQTT] Publishing config to ${topic}`,
@@ -256,7 +248,8 @@ export default fp(async (fastify: FastifyInstance) => {
 
   fastify.decorate('publishReset', (moduleId: string, sensor: string) => {
     if (!client) return false
-    const topic = `${moduleId}/sensors/reset`
+    // In the new namespace, moduleId IS the chipId
+    const topic = `mesurable/${moduleId}/reset`
     const payload = JSON.stringify({ sensor })
     client.publish(topic, payload, { qos: 1 })
     fastify.log.success({

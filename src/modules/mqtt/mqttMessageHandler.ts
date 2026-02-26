@@ -2,23 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import type { MqttMeasurement, DeviceStatusUpdate, WebSocketMqttData } from '../../types/mqtt'
 import { MqttRepository } from './mqttRepository'
 import { registry } from '../../core/registry'
-
-type TopicParts = {
-  moduleId: string
-  category: string | null
-  sensorType: string | null
-  parts: string[]
-}
-
-// Cache to store chipId per moduleId (extracted from system/config messages)
-type ChipIdCache = Map<string, string>
+import { parseTopic, type TopicParts } from './service'
 
 export class MqttMessageHandler {
-  // Cache for delta updates - only broadcast if data changed
-  private lastBroadcastedPayload: Map<string, string> = new Map()
-  // Cache for chipId per moduleId
-  private chipIdCache: ChipIdCache = new Map()
-
   constructor(
     private fastify: FastifyInstance,
     private mqttRepo: MqttRepository,
@@ -29,88 +15,103 @@ export class MqttMessageHandler {
   ) { }
 
   /**
-   * Initialize cache from DB
+   * Handle announce messages: mesurable/{chipId}/announce
+   * 
+   * Payload: { type: "air-quality", moduleId: "air-quality", firmware: "1.0.0", 
+   *            hardware: [{key: "scd41", name: "SCD41", sensors: ["co2", "temperature", "humidity"]}] }
    */
-  async init(mapping: Map<string, string>) {
-    mapping.forEach((chipId, moduleId) => {
-      this.chipIdCache.set(moduleId, chipId)
-    })
-    this.fastify.log.info(`[MQTT] MqttMessageHandler initialized with ${mapping.size} device mappings`)
-  }
-
-  /**
-   * Parse topic structure: module_id/category/sensor_type
-   */
-  private parseTopic(topic: string): TopicParts | null {
-    const parts = topic.split('/')
-    if (parts.length < 2) {
-      this.fastify.log.debug(`⚠️ Topic ignored (too short): ${topic}`)
-      return null
-    }
-
-    const moduleId = parts[0]
-
-    // Skip test topics
-    if (moduleId.startsWith('home/') || moduleId.startsWith('dev/') || moduleId === 'test-module') {
-      return null
-    }
-
-    return {
-      moduleId,
-      category: parts.length > 1 ? parts[1] : null,
-      sensorType: parts.length > 2 ? parts[2] : null,
-      parts,
-    }
-  }
-
-  /**
-   * Handle system messages (system or system/config)
-   */
-  private handleSystemMessage(topic: string, payload: string, moduleId: string): boolean {
-    if (!topic.endsWith('/system') && !topic.endsWith('/system/config')) {
-      return false
-    }
-
+  private handleAnnounceMessage(payload: string, chipId: string): boolean {
     try {
-      const metadata = JSON.parse(payload)
-      const type = topic.endsWith('/config') ? 'system_config' : 'system'
+      const data = JSON.parse(payload)
+      const moduleType = data.type || data.moduleType || null
+      // Always use chipId as moduleId in DB (human name goes in module_type)
+      const moduleId = chipId
 
-      // Extract and cache chipId if present in system/config
-      if (type === 'system_config' && metadata.chipId) {
-        this.chipIdCache.set(moduleId, metadata.chipId)
+      this.fastify.log.info({
+        msg: `[MQTT] 📡 Device announced: ${chipId} (type: ${moduleType}, moduleId: ${moduleId})`,
+        category: 'MQTT',
+        source: 'SYSTEM',
+        chipId,
+        moduleType,
+        hardware: data.hardware,
+      })
+
+      // Push system_config update with moduleType + chipId
+      this.statusUpdateBuffer.push({
+        moduleId,
+        chipId,
+        type: 'system_config',
+        data: { moduleType, chipId }
+      })
+
+      // Push sensor configs from announce hardware array
+      if (Array.isArray(data.hardware)) {
+        const sensorConfigs: Record<string, { model?: string; enabled?: boolean }> = {}
+
+        for (const hw of data.hardware) {
+          if (hw.key && Array.isArray(hw.sensors)) {
+            for (const sensor of hw.sensors) {
+              const compositeKey = `${hw.key}:${sensor}`
+              sensorConfigs[compositeKey] = {
+                model: hw.key,
+                enabled: true,
+              }
+            }
+          }
+        }
+
+        if (Object.keys(sensorConfigs).length > 0) {
+          this.statusUpdateBuffer.push({
+            moduleId,
+            chipId,
+            type: 'sensors_config',
+            data: sensorConfigs
+          })
+        }
       }
-
-      const chipId = this.chipIdCache.get(moduleId) || 'UNKNOWN'
-      this.statusUpdateBuffer.push({ moduleId, chipId, type, data: metadata })
 
       if (this.statusUpdateBuffer.length >= 50) {
         void this.onStatusBufferFull()
       }
       return true
     } catch (e) {
-      this.fastify.log.warn(`⚠️ Failed to parse system message from ${topic}: ${e}`)
+      this.fastify.log.warn(`⚠️ Failed to parse announce from chipId ${chipId}: ${e}`)
       return false
     }
   }
 
   /**
-   * Handle sensor status messages
-   * Supports two formats:
-   * - Legacy flat: {"dht22:temperature":{"status":"ok","value":22.5}, ...}
-   * - New nested: {"moduleId":"x","moduleType":"y","sensors":{...}}
+   * Handle system messages: mesurable/{chipId}/system
    */
-  private handleSensorStatusMessage(topic: string, payload: string, moduleId: string): boolean {
-    if (!topic.endsWith('/sensors/status')) {
-      return false
-    }
-
+  private handleSystemMessage(payload: string, parsed: TopicParts): boolean {
     try {
       const metadata = JSON.parse(payload)
-      const chipId = this.chipIdCache.get(moduleId) || 'UNKNOWN'
+      const { chipId } = parsed
+      const moduleId = chipId
 
-      // Check for new nested format with moduleType
+      this.statusUpdateBuffer.push({ moduleId, chipId, type: 'system_config', data: { ...metadata, chipId } })
+
+      if (this.statusUpdateBuffer.length >= 50) {
+        void this.onStatusBufferFull()
+      }
+      return true
+    } catch (e) {
+      this.fastify.log.warn(`⚠️ Failed to parse system message: ${e}`)
+      return false
+    }
+  }
+
+  /**
+   * Handle sensor status messages: mesurable/{chipId}/status
+   */
+  private handleStatusMessage(payload: string, parsed: TopicParts): boolean {
+    try {
+      const metadata = JSON.parse(payload)
+      const { chipId } = parsed
+      const moduleId = chipId
+
+      // Check for nested format with moduleType
       if (metadata.sensors && typeof metadata.sensors === 'object') {
-        // Extract moduleType and persist it via system_config update
         if (metadata.moduleType) {
           this.statusUpdateBuffer.push({
             moduleId,
@@ -119,127 +120,92 @@ export class MqttMessageHandler {
             data: { moduleType: metadata.moduleType }
           })
         }
-        // Use the nested sensors object for sensor status
         this.statusUpdateBuffer.push({ moduleId, chipId, type: 'sensors_status', data: metadata.sensors })
       } else {
-        // Legacy flat format - use as-is
         this.statusUpdateBuffer.push({ moduleId, chipId, type: 'sensors_status', data: metadata })
       }
       return true
     } catch (e) {
-      this.fastify.log.warn(`⚠️ Failed to parse sensors/status from ${topic}: ${e}`)
+      this.fastify.log.warn(`⚠️ Failed to parse status: ${e}`)
       return false
     }
   }
 
   /**
-   * Handle sensor config messages
+   * Handle sensor config messages: mesurable/{chipId}/config
    */
-  private handleSensorConfigMessage(topic: string, payload: string, moduleId: string): boolean {
-    if (!topic.endsWith('/sensors/config')) {
-      return false
-    }
-
+  private handleConfigMessage(payload: string, parsed: TopicParts): boolean {
     try {
       const metadata = JSON.parse(payload)
-      const chipId = this.chipIdCache.get(moduleId) || 'UNKNOWN'
+      const { chipId } = parsed
+      const moduleId = chipId
+
       this.statusUpdateBuffer.push({ moduleId, chipId, type: 'sensors_config', data: metadata })
       return true
     } catch (e) {
-      this.fastify.log.warn(`⚠️ Failed to parse sensors/config from ${topic}: ${e}`)
+      this.fastify.log.warn(`⚠️ Failed to parse config: ${e}`)
       return false
     }
   }
 
   /**
-   * Handle hardware config messages
+   * Handle hardware config messages: mesurable/{chipId}/hardware
    */
-  private handleHardwareMessage(topic: string, payload: string, moduleId: string): boolean {
-    if (!topic.endsWith('/hardware/config')) {
-      return false
-    }
-
+  private handleHardwareMessage(payload: string, parsed: TopicParts): boolean {
     try {
       const metadata = JSON.parse(payload)
-      const chipId = this.chipIdCache.get(moduleId) || 'UNKNOWN'
+      const { chipId } = parsed
+      const moduleId = chipId
+
       this.statusUpdateBuffer.push({ moduleId, chipId, type: 'hardware', data: metadata })
       return true
     } catch (e) {
-      this.fastify.log.warn(`⚠️ Failed to parse hardware/config from ${topic}: ${e}`)
+      this.fastify.log.warn(`⚠️ Failed to parse hardware: ${e}`)
       return false
     }
   }
 
   /**
-   * Handle device log messages
+   * Handle device log messages: mesurable/{chipId}/log
    */
-  private handleDeviceLog(topic: string, payload: string, moduleId: string): boolean {
-    if (!topic.endsWith('/logs')) {
-      return false
-    }
-
+  private handleLogMessage(payload: string, parsed: TopicParts): boolean {
     try {
       const logEntry = JSON.parse(payload)
       const { level, msg, time } = logEntry
-
-      // Log to console to trace the flow (bypasses Pino to ensure we see it)
-      // Log to console removed
-      // console.log(\`[MQTT DEBUG] ...\`)
+      const { chipId } = parsed
 
       const logData = {
-        msg: `[HARDWARE:${moduleId}] ${msg}`,
+        msg: `[HARDWARE:${chipId}] ${msg}`,
         direction: 'IN',
-        moduleId,
+        moduleId: chipId,
         deviceTime: time,
         source: 'SYSTEM',
         category: 'HARDWARE',
       }
 
-      // Use the appropriate Pino method based on the log level
       const logLevel = (level || 'info').toLowerCase()
-      // console.log(\`[MQTT DEBUG] Calling Pino method: ${logLevel}\`)
       switch (logLevel) {
-        case 'trace':
-          this.fastify.log.trace(logData)
-          break
-        case 'debug':
-          this.fastify.log.debug(logData)
-          break
-        case 'warn':
-          this.fastify.log.warn(logData)
-          break
-        case 'success':
-          this.fastify.log.success(logData)
-          break
-        case 'error':
-          this.fastify.log.error(logData)
-          break
-        case 'fatal':
-          this.fastify.log.fatal(logData)
-          break
+        case 'trace': this.fastify.log.trace(logData); break
+        case 'debug': this.fastify.log.debug(logData); break
+        case 'warn': this.fastify.log.warn(logData); break
+        case 'success': this.fastify.log.success(logData); break
+        case 'error': this.fastify.log.error(logData); break
+        case 'fatal': this.fastify.log.fatal(logData); break
         case 'info':
-        default:
-          this.fastify.log.info(logData)
-          break
+        default: this.fastify.log.info(logData); break
       }
-      // console.log(\`[MQTT DEBUG] Log sent to Pino successfully\`)
       return true
     } catch (e) {
-      console.error(`[MQTT DEBUG] Failed to parse device log from ${topic}:`, e)
-      this.fastify.log.warn(`⚠️ [MQTT] Failed to parse device log from ${topic}: ${e}`)
+      this.fastify.log.warn(`⚠️ Failed to parse device log: ${e}`)
       return false
     }
   }
 
   /**
    * Validate sensor value to reject aberrant readings.
-   * Ranges are now loaded from module manifests via the registry.
    */
-  private isValueValid(moduleId: string, sensorType: string, value: number): boolean {
-    // Get range from registry (loaded from manifests)
+  private isValueValid(chipId: string, sensorType: string, value: number): boolean {
     const range = registry.getValidationRange(sensorType)
-
-    // Unknown sensor type - allow (backwards compatibility)
     if (!range) return true
 
     if (value < range.min || value > range.max) {
@@ -247,7 +213,7 @@ export class MqttMessageHandler {
         msg: `[MQTT] ⚠️ Aberrant value rejected: ${sensorType}=${value} (valid range: ${range.min}-${range.max})`,
         category: 'MQTT',
         source: 'SYSTEM',
-        moduleId,
+        chipId,
         sensorType,
         value,
         min: range.min,
@@ -259,114 +225,41 @@ export class MqttMessageHandler {
   }
 
   /**
-   * Handle sensor measurement messages
+   * Handle sensor measurement messages: mesurable/{chipId}/data/{hardwareId}/{sensorType}
    */
-  private handleSensorMeasurement(
-    topic: string,
-    payload: string,
-    parsed: TopicParts,
-    now: Date
-  ): boolean {
-    const { moduleId, category, parts } = parsed
-
-    // Debug: log ALL sensor measurement attempts
-    this.fastify.log.info(`[DEBUG MEASUREMENT] Topic: ${topic}, parts: ${parts.length}, category: ${category}`)
-
-    // Format: module_id/hardware_id/measurement (NEW - Hardware-aware format)
-    // Example: croissance/dht22/temperature, croissance/bmp280/pressure
-    if (parts.length === 3 && category !== 'sensors' && !topic.includes('/status') && !topic.includes('/config')) {
-      const hardwareId = parts[1]
-      const measurementType = parts[2]
-
-      this.fastify.log.info(`[DEBUG] Matched sensor format: ${moduleId}/${hardwareId}/${measurementType}`)
-
-      // Canonical sensor key mappings - all hardware uses the same canonical keys
-      // The hardware_id is stored separately to track the source
-      const canonicalMappings: Record<string, Record<string, string>> = {
-        'bmp280': {
-          'temperature': 'temperature',  // Now canonical
-          'pressure': 'pressure'
-        },
-        'sht40': {
-          'temperature': 'temperature',  // Now canonical (was temp_sht)
-          'humidity': 'humidity'         // Now canonical (was hum_sht)
-        },
-        'sht31': {
-          'temperature': 'temperature',
-          'humidity': 'humidity'
-        },
-        'dht22': {
-          'temperature': 'temperature',
-          'humidity': 'humidity'
-        },
-        'scd41': {
-          'co2': 'co2',
-          'temperature': 'temperature',
-          'humidity': 'humidity'
-        },
-        'tpm200a': {
-          'co': 'co'
-        },
-        'sgp30': {
-          'eco2': 'eco2',
-          'tvoc': 'tvoc'
-        },
-        'sgp40': {
-          'voc': 'voc'
-        },
-        'sps30': {
-          'pm1': 'pm1',
-          'pm25': 'pm25',
-          'pm4': 'pm4',
-          'pm10': 'pm10'
-        },
-        'mhz14a': {
-          'co2': 'co2'
-        },
-        'mhz19e': {
-          'co2': 'co2'
-        },
-        'mq7': {
-          'co': 'co'
-        }
-      }
-
-      // Look up the canonical key, fallback to original if not found
-      const hardwareMap = canonicalMappings[hardwareId]
-      const canonicalSensorType = hardwareMap?.[measurementType] ?? measurementType
-
-      const value = parseFloat(payload)
-      if (isNaN(value)) {
-        this.fastify.log.warn(`[DEBUG] Rejected NaN value: ${topic}`)
-        return false
-      }
-
-      // Validate value range
-      if (!this.isValueValid(moduleId, canonicalSensorType, value)) {
-        this.fastify.log.warn(`[DEBUG] Rejected out-of-range: ${topic} = ${value}`)
-        return true // Message was handled (rejected), don't try other handlers
-      }
-
-      this.fastify.log.info(`[DEBUG] Adding to buffer: ${moduleId}/${hardwareId}:${canonicalSensorType} = ${value}`)
-
-      this.measurementBuffer.push({
-        time: now,
-        moduleId,
-        chipId: this.chipIdCache.get(moduleId) || 'UNKNOWN',
-        sensorType: canonicalSensorType,
-        hardwareId,  // Store the hardware source
-        value
-      })
-
-      if (this.measurementBuffer.length >= 100) {
-        void this.onMeasurementBufferFull()
-      }
-      return true
+  private handleDataMessage(payload: string, parsed: TopicParts, now: Date): boolean {
+    if (parsed.rest.length !== 2) {
+      return false
     }
 
+    const { chipId } = parsed
+    const hardwareId = parsed.rest[0]
+    const sensorType = parsed.rest[1]
 
+    const value = parseFloat(payload)
+    if (isNaN(value)) {
+      this.fastify.log.warn(`[MQTT] Rejected NaN value: mesurable/${chipId}/data/${hardwareId}/${sensorType}`)
+      return false
+    }
 
-    return false
+    // Validate value range
+    if (!this.isValueValid(chipId, sensorType, value)) {
+      return true // Message was handled (rejected)
+    }
+
+    this.measurementBuffer.push({
+      time: now,
+      moduleId: chipId,  // chipId IS the moduleId in the new namespace
+      chipId,
+      sensorType,
+      hardwareId,
+      value
+    })
+
+    if (this.measurementBuffer.length >= 100) {
+      void this.onMeasurementBufferFull()
+    }
+    return true
   }
 
   /**
@@ -385,35 +278,24 @@ export class MqttMessageHandler {
     let wsValue: number | null = null
     let wsMetadata: Record<string, unknown> | null = null
 
-    // JSON messages (metadata)
-    if (
-      topic.endsWith('/system') ||
-      topic.endsWith('/system/config') ||
-      topic.endsWith('/sensors/status') ||
-      topic.endsWith('/sensors/config') ||
-      topic.endsWith('/hardware/config')
-    ) {
-      try {
-        const parsed = JSON.parse(payload) as Record<string, unknown>
+    if (!parsed) return null
 
-        // Handle nested sensors/status format: {moduleId, moduleType, sensors: {...}}
-        if (topic.endsWith('/sensors/status') && parsed.sensors && typeof parsed.sensors === 'object') {
-          wsMetadata = parsed.sensors as Record<string, unknown>
+    // JSON messages (metadata)
+    if (['announce', 'status', 'config', 'system', 'hardware'].includes(parsed.subtopic)) {
+      try {
+        const data = JSON.parse(payload) as Record<string, unknown>
+        // Handle nested sensors/status format
+        if (parsed.subtopic === 'status' && data.sensors && typeof data.sensors === 'object') {
+          wsMetadata = data.sensors as Record<string, unknown>
         } else {
-          wsMetadata = parsed
+          wsMetadata = data
         }
       } catch {
         // Ignore parse errors
       }
     }
-    // Numeric sensor measurements
-    // Supports:
-    // - Legacy: module_id/sensors (2 parts) or module_id/sensors/sensor_type (3 parts with sensors)
-    // - New: module_id/hardware_id/measurement (3 parts with hardware-aware format)
-    else if (
-      parsed &&
-      (parsed.parts.length === 3 && parsed.category && !['sensors', 'system', 'hardware', 'logs'].includes(parsed.category))
-    ) {
+    // Numeric sensor measurements: mesurable/{chipId}/data/{hw}/{sensor}
+    else if (parsed.subtopic === 'data' && parsed.rest.length === 2) {
       const numValue = parseFloat(payload)
       if (!isNaN(numValue)) {
         wsValue = numValue
@@ -438,65 +320,49 @@ export class MqttMessageHandler {
   async handleMessage(topic: string, message: Buffer): Promise<void> {
     const payload = message.toString()
     const now = new Date()
-    const parsed = this.parseTopic(topic)
-
-    // Debug: log all /logs topics
-    if (topic.endsWith('/logs')) {
-      // console.log(
-      //   `[MQTT DEBUG] Received message on /logs topic: ${topic}, payload: ${payload.substring(0, 200)}`
-      // )
-    }
-
-    // Debug logging removed to reduce spam
-    /*
-    if (topic.includes('/pressure') || topic.includes('/temperature_bmp')) {
-      console.log(
-        `[MQTT DEBUG] Received message on sensor topic: ${topic}, payload: ${payload}, parsed: ${parsed ? 'OK' : 'FAILED'}`
-      )
-    }
-    */
+    const parsed = parseTopic(topic)
 
     if (!parsed) {
-      if (topic.endsWith('/logs')) {
-        // console.log(`[MQTT DEBUG] Topic ${topic} was rejected by parseTopic`)
-      }
-      return
+      return  // Not in mesurable/ namespace, ignore
     }
 
-    const { moduleId } = parsed
+    const { chipId } = parsed
 
-    // Try handlers in order
-    if (this.handleSystemMessage(topic, payload, moduleId)) {
-      // Handled
-    } else if (this.handleSensorStatusMessage(topic, payload, moduleId)) {
-      // Handled
-    } else if (this.handleSensorConfigMessage(topic, payload, moduleId)) {
-      // Handled
-    } else if (this.handleHardwareMessage(topic, payload, moduleId)) {
-      // Handled
-    } else if (this.handleDeviceLog(topic, payload, moduleId)) {
-      // Handled
-      // console.log(`[MQTT DEBUG] handleDeviceLog returned true for ${topic}`)
-    } else if (this.handleSensorMeasurement(topic, payload, parsed, now)) {
-      // Handled
-    } else {
-      if (topic.endsWith('/logs')) {
-        // console.log(`[MQTT DEBUG] Topic ${topic} was not handled by any handler`)
-      }
-      this.fastify.log.info(`⚠️ Topic not processed: ${topic} (parts: ${parsed.parts.join(', ')})`)
+    // Try handlers in order based on subtopic
+    switch (parsed.subtopic) {
+      case 'announce':
+        this.handleAnnounceMessage(payload, chipId)
+        break
+      case 'system':
+        this.handleSystemMessage(payload, parsed)
+        break
+      case 'status':
+        this.handleStatusMessage(payload, parsed)
+        break
+      case 'config':
+        this.handleConfigMessage(payload, parsed)
+        break
+      case 'hardware':
+        this.handleHardwareMessage(payload, parsed)
+        break
+      case 'log':
+        this.handleLogMessage(payload, parsed)
+        break
+      case 'data':
+        if (!this.handleDataMessage(payload, parsed, now)) {
+          this.fastify.log.info(`⚠️ Data topic not processed: ${topic}`)
+        }
+        break
+      default:
+        this.fastify.log.info(`⚠️ Topic not processed: ${topic}`)
     }
 
-    // Broadcast via WebSocket (always emit to keep frontend "alive" status updated)
+    // Broadcast via WebSocket
     const wsData = this.prepareWebSocketData(topic, payload, parsed, now)
     if (wsData && this.fastify.io) {
       const clientCount = this.fastify.io.sockets.sockets.size
-      console.log(`[SOCKET DEBUG] Topic: ${topic}, Clients: ${clientCount}, wsData: ${wsData ? 'OK' : 'null'}`)
       if (clientCount > 0) {
-        // REMOVED DELTA CHECK: We want to send updates even if value is same, 
-        // so the frontend knows the sensor is still alive (timestamp refresh).
-        // this.lastBroadcastedPayload.set(topic, payload)
         this.fastify.io.emit('mqtt:data', wsData)
-
       }
     }
   }
