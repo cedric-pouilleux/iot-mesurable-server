@@ -202,6 +202,45 @@ export class MqttMessageHandler {
   }
 
   /**
+   * Handle online/offline messages (LWT): mesurable/{chipId}/online
+   * 
+   * Published by ESP on connect: {"online":true}
+   * Published by broker (LWT) on unexpected disconnect: {"online":false}
+   */
+  private handleOnlineMessage(payload: string, parsed: TopicParts): boolean {
+    try {
+      const data = JSON.parse(payload)
+      const { chipId } = parsed
+      const isOnline = data.online === true
+
+      this.fastify.log.info({
+        msg: `[MQTT] ${isOnline ? '🟢' : '🔴'} Device ${chipId} is ${isOnline ? 'ONLINE' : 'OFFLINE'}`,
+        category: 'MQTT',
+        source: 'LWT',
+        chipId,
+        online: isOnline,
+      })
+
+      // Push status update to buffer
+      this.statusUpdateBuffer.push({
+        moduleId: chipId,
+        chipId,
+        type: 'system_config',
+        data: { online: isOnline, chipId }
+      })
+
+      if (this.statusUpdateBuffer.length >= 50) {
+        void this.onStatusBufferFull()
+      }
+
+      return true
+    } catch (e) {
+      this.fastify.log.warn(`⚠️ Failed to parse online message from ${parsed.chipId}: ${e}`)
+      return false
+    }
+  }
+
+  /**
    * Validate sensor value to reject aberrant readings.
    */
   private isValueValid(chipId: string, sensorType: string, value: number): boolean {
@@ -347,6 +386,9 @@ export class MqttMessageHandler {
         break
       case 'log':
         this.handleLogMessage(payload, parsed)
+        break
+      case 'online':
+        this.handleOnlineMessage(payload, parsed)
         break
       case 'data':
         if (!this.handleDataMessage(payload, parsed, now)) {

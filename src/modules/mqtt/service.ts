@@ -162,6 +162,7 @@ export type MessageCategory =
     | 'system'
     | 'hardware'
     | 'log'
+    | 'online'
     | 'unknown'
 
 export function identifyMessageCategory(parsed: TopicParts): MessageCategory {
@@ -173,6 +174,7 @@ export function identifyMessageCategory(parsed: TopicParts): MessageCategory {
         case 'system': return 'system'
         case 'hardware': return 'hardware'
         case 'log': return 'log'
+        case 'online': return 'online'
         default: return 'unknown'
     }
 }
