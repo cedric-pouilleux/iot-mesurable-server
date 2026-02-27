@@ -320,7 +320,7 @@ export class MqttMessageHandler {
     if (!parsed) return null
 
     // JSON messages (metadata)
-    if (['announce', 'status', 'config', 'system', 'hardware'].includes(parsed.subtopic)) {
+    if (['announce', 'status', 'config', 'system', 'hardware', 'online'].includes(parsed.subtopic)) {
       try {
         const data = JSON.parse(payload) as Record<string, unknown>
         // Handle nested sensors/status format
